@@ -10,7 +10,7 @@ import {
   CalendarDays,
   Edit3,
   Filter,
-  Loader2,
+
   Plus,
   Star,
   Tag,
@@ -24,7 +24,7 @@ import { cn } from "../utils/cn";
 import { useStore } from "../store/useStore";
 import type { CategoryId, EvolutionLog, Skill, SkillStatus } from "../types";
 import { CATEGORIES, SKILL_STATUS_LABEL } from "../types";
-import { ConfirmDialog, EmptyState, MarkdownRenderer, StatusBadge } from "../components/ui";
+import { ConfirmDialog, EmptyState } from "../components/ui";
 import { navigateTo } from "../components/Header";
 
 type SkillFilter = "all" | SkillStatus;
@@ -34,14 +34,12 @@ export function SkillPage() {
   const {
     skills,
     evolutionLogs,
-    reports,
     addSkill,
     updateSkill,
     archiveSkill,
     pinSkill,
     deleteSkill,
     incrementSkillUsage,
-    addEvolutionLog,
     toast,
   } = useStore();
 
@@ -66,9 +64,7 @@ export function SkillPage() {
   const [editTags, setEditTags] = useState("");
   const [editContent, setEditContent] = useState("");
 
-  const generating = reports.filter((r) => r.status === "generating");
 
-  // 过滤后的 Skill 列表
   const filteredSkills = useMemo(() => {
     let list = skills;
     if (filter !== "all") {
@@ -131,6 +127,7 @@ export function SkillPage() {
       category: newCategory,
       content: newContent.trim(),
       author: "用户自定义",
+      status: "active",
       tags,
     });
     setNewName("");

@@ -62,7 +62,7 @@ export function ProjectPage() {
     setFormOpen(true);
   };
 
-  const submit = () => {
+  const submit = async () => {
     const errs: typeof errors = {};
     if (!form.name.trim()) errs.name = "请输入项目名称";
     if (!form.description.trim()) errs.description = "请输入项目描述 / 目标";
@@ -90,7 +90,7 @@ export function ProjectPage() {
       });
       toast("success", "项目已更新 ✓");
     } else {
-      const id = createProject({
+      const id = await createProject({
         name: form.name.trim(),
         description: form.description.trim(),
         type: form.type,

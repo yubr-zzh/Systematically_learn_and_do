@@ -51,7 +51,7 @@ export function LearnPage() {
     });
   }, [reports, filter, search, sort]);
 
-  const submit = () => {
+  const submit = async () => {
     const v = subject.trim();
     if (!v) {
       setInputError("请输入你想学习的主题");
@@ -62,7 +62,7 @@ export function LearnPage() {
       return;
     }
     setInputError("");
-    const id = startLearn(v, category);
+    const id = await startLearn(v, category);
     setSubject("");
     navigateTo("learn", id);
   };

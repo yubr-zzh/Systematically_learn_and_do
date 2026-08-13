@@ -49,6 +49,10 @@ export default function App() {
   const router = useStore((s) => s.router);
   const setRouter = useStore((s) => s.setRouter);
   const theme = useStore((s) => s.settings.theme);
+  const loadAll = useStore((s) => s.loadAll);
+
+  // 初始化：加载所有数据
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   // 路由监听
   useEffect(() => {

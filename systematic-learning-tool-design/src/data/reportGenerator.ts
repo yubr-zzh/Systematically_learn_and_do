@@ -6,7 +6,6 @@
 // ============================================================
 
 import type { CategoryId, Milestone, ProjectTypeId, TaskPhase } from "../types";
-import { generateReportWithAI } from "../services/ai";
 
 interface CategoryBank {
   adjacent: [string, string][];
@@ -358,18 +357,8 @@ const BANKS: Record<CategoryId, CategoryBank> = {
 };
 
 /** 根据主题与分类生成学习研究报告（使用 AI API） */
-export async function generateLearnReport(subject: string, category: CategoryId, depth: string = 'standard'): Promise<string> {
-  try {
-    const result = await generateReportWithAI({
-      subject,
-      category,
-      depth,
-    });
-    return result.content;
-  } catch (error) {
-    console.error('AI 生成失败，回退到模板生成:', error);
-    return generateLearnReportFallback(subject, category);
-  }
+export async function generateLearnReport(subject: string, category: CategoryId, _depth?: 'basic' | 'standard' | 'deep'): Promise<string> {
+  return generateLearnReportFallback(subject, category);
 }
 
 /** 回退到模板生成（当 API 不可用时） */

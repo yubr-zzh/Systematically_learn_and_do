@@ -3,7 +3,7 @@
 // ============================================================
 
 import type { CategoryId, FeedbackItem, LearnReport, Project, ProjectTypeId, Task, TaskPhase } from "../types";
-import { generateLearnReport, generateProjectReport } from "./reportGenerator";
+import { generateProjectReport } from "./reportGenerator";
 
 const daysAgo = (n: number) => {
   const d = new Date();
@@ -12,7 +12,7 @@ const daysAgo = (n: number) => {
 };
 
 function makeReport(id: string, subject: string, category: CategoryId, createdAt: string, favorite = false): LearnReport {
-  const content = generateLearnReport(subject, category);
+  const content = `# ${subject} 研究报告\n\n本报告已迁移至后端服务生成。`;
   return {
     id,
     title: `${subject} · 系统研究报告`,

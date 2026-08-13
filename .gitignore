@@ -1,4 +1,4 @@
-# Env files
+# Env files (keep API key out of repo)
 .env
 .env.local
 .env.*.local
