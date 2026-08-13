@@ -30,3 +30,5 @@ yarn-error.log*
 # Test data
 test.txt
 test2.txt
+新建 文本文档.txt
+*.txt
