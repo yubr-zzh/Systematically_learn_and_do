@@ -32,3 +32,7 @@ test.txt
 test2.txt
 新建 文本文档.txt
 *.txt
+
+# Demo backup (not committed)
+systematic-learning-tool-front&back-demo/
+systematic-learning-tool-front&back-demo.zip
