@@ -4,13 +4,17 @@
 // ============================================================
 
 import fetch from 'node-fetch';
+import https from 'node:https';
 
 const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.API_KEY;
 const API_BASE_URL = process.env.API_BASE_URL || 'https://api.deepseek.com/v1';
 const MODEL = process.env.AI_MODEL || 'deepseek-chat';
 
+// Bypass system proxy for AI API calls
+const httpsAgent = new https.Agent({ proxy: false });
+
 /**
- * Call AI API with error handling
+ * Call AI API with error handling (proxy bypass)
  */
 async function callAI(messages, options = {}) {
   const { maxTokens = 4000, temperature = 0.7 } = options;
@@ -28,6 +32,7 @@ async function callAI(messages, options = {}) {
         max_tokens: maxTokens,
         temperature,
       }),
+      agent: httpsAgent,
     });
 
     if (!response.ok) {
@@ -208,7 +213,63 @@ ${'```'}
 }
 
 /**
- * Run complete three-stage research workflow
+ * 学习报告流程 —— 只做「横纵分析」
+ * 针对：学习新概念 / 新领域
+ */
+export async function runLearnAnalysis(subject, category, options = {}) {
+  const { depth = 'standard' } = options;
+  console.log(`[Learn] 横纵分析: ${subject}`);
+
+  let stage1;
+  try {
+    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth });
+  } catch (e) {
+    console.warn('[Learn] AI 不可用，使用模板:', e.message);
+    stage1 = generateTemplateReport(subject, category);
+  }
+
+  return {
+    content: stage1.content,
+    stages: { analysis: stage1 },
+    wordCount: stage1.wordCount,
+  };
+}
+
+/**
+ * 项目流程 —— 只做「深度调研 + 规划」
+ * 针对：执行 project / 制定 plan
+ */
+export async function runProjectResearch(name, description, options = {}) {
+  const { sources = 8, style = 'hybrid' } = options;
+  console.log(`[Project] 深度调研+规划: ${name}`);
+
+  let stage2;
+  try {
+    stage2 = await stage2DeepResearch(name, description, { sources });
+  } catch (e) {
+    console.warn('[Project] 调研 AI 不可用，使用模板:', e.message);
+    stage2 = { stage: 'research', content: `## 深度调研（模板）\n\nAI 服务暂时不可用，以下为模板调研内容。`, wordCount: 100 };
+  }
+
+  let stage3;
+  try {
+    stage3 = await stage3Planning(name, description, stage2.content, { style });
+  } catch (e) {
+    console.warn('[Project] 规划 AI 不可用，使用模板:', e.message);
+    stage3 = { stage: 'planning', content: `## 规划建议（模板）\n\nAI 服务暂时不可用，以下为模板规划内容。`, wordCount: 100 };
+  }
+
+  const fullContent = `# ${name} · 项目调研与规划\n\n${stage2.content}\n\n---\n\n${stage3.content}\n\n---\n\n*本报告由 Systematically Learn and Do 自动生成*`;
+
+  return {
+    content: fullContent,
+    stages: { research: stage2, planning: stage3 },
+    wordCount: fullContent.replace(/\s/g, '').length,
+  };
+}
+
+/**
+ * Run complete three-stage research workflow (已弃用，仅供兼容)
  */
 export async function runFullResearch(subject, category, options = {}) {
   const { 
@@ -222,44 +283,42 @@ export async function runFullResearch(subject, category, options = {}) {
 
   // Stage 1: Horizontal-Vertical Analysis
   console.log('Stage 1: Horizontal-Vertical Analysis...');
-  const stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth });
+  let stage1;
+  try {
+    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth });
+  } catch (e) {
+    console.warn('Stage 1 AI failed, using template:', e.message);
+    stage1 = { stage: 'analysis', content: `# ${subject} 横纵分析（模板）\n\nAI 服务暂时不可用，以下为模板内容。`, wordCount: 200 };
+  }
   onStageComplete?.('analysis', stage1);
 
   // Stage 2: Deep Research
   console.log('Stage 2: Deep Research...');
-  const stage2 = await stage2DeepResearch(subject, stage1.content, { sources });
+  let stage2;
+  try {
+    stage2 = await stage2DeepResearch(subject, stage1.content, { sources });
+  } catch (e) {
+    console.warn('Stage 2 AI failed, using template:', e.message);
+    stage2 = { stage: 'research', content: `## 深度调研（模板）\n\nAI 服务暂时不可用。`, wordCount: 100 };
+  }
   onStageComplete?.('research', stage2);
 
   // Stage 3: Planning
   console.log('Stage 3: Planning...');
-  const stage3 = await stage3Planning(subject, stage1.content, stage2.content, { style });
+  let stage3;
+  try {
+    stage3 = await stage3Planning(subject, stage1.content, stage2.content, { style });
+  } catch (e) {
+    console.warn('Stage 3 AI failed, using template:', e.message);
+    stage3 = { stage: 'planning', content: `## 规划建议（模板）\n\nAI 服务暂时不可用。`, wordCount: 100 };
+  }
   onStageComplete?.('planning', stage3);
 
-  // Combine all stages
-  const fullContent = `# ${subject} 深度研究报告
-
-${stage1.content}
-
----
-
-${stage2.content}
-
----
-
-${stage3.content}
-
----
-
-*本报告由 Systematically Learn and Do 自动生成*
-`;
+  const fullContent = `# ${subject} 深度研究报告\n\n${stage1.content}\n\n---\n\n${stage2.content}\n\n---\n\n${stage3.content}\n\n---\n\n*本报告由 Systematically Learn and Do 自动生成*`;
 
   return {
     content: fullContent,
-    stages: {
-      analysis: stage1,
-      research: stage2,
-      planning: stage3,
-    },
+    stages: { analysis: stage1, research: stage2, planning: stage3 },
     wordCount: fullContent.replace(/\s/g, '').length,
   };
 }
@@ -285,4 +344,67 @@ ${skillTemplate}
     content,
     wordCount: content.replace(/\s/g, '').length,
   };
+}
+
+// ============================================================
+// Template Fallback — used when AI API is unavailable
+// ============================================================
+
+const CATEGORY_META = {
+  general: {
+    adjacent: [['相邻领域A', '关系描述'], ['相邻领域B', '关系描述']],
+    history: [['起步', '早期', '初步探索'], ['发展', '中期', '快速成长'], ['成熟', '近期', '稳定应用']],
+    core: ['核心概念', '关键方法', '实践应用'],
+    pitfalls: ['避免概念空转', '先做项目再学理论'],
+    summary: '建议以真实项目为锚点反向学习，用输出倒逼输入。',
+  },
+};
+
+/** Generate a structured report from template when AI is unavailable */
+export function generateTemplateReport(subject, category = 'general') {
+  const meta = CATEGORY_META[category] ?? CATEGORY_META.general;
+  const now = new Date().toLocaleDateString('zh-CN');
+
+  const adjacentRows = meta.adjacent.map(([a, b]) => `| ${a} | ${b} |`).join('\n');
+  const historyRows = meta.history.map(([s, t, d]) => `| ${s} | ${t} | ${d} |`).join('\n');
+  const coreRows = meta.core.map(c => `- ${c}`).join('\n');
+  const pitfallRows = meta.pitfalls.map(p => `- ${p}`).join('\n');
+
+  const content = `# 《${subject}》深度研究报告
+
+> 本报告采用「横纵分析法」自动生成。
+> 生成时间：${now}
+
+## 一、横向分析：领域边界与知识版图
+
+### 1.1 与相邻领域的对比
+
+| 相邻领域 | 关系 |
+| --- | --- |
+${adjacentRows}
+
+### 1.2 核心知识要素
+
+${coreRows}
+
+## 二、纵向分析：历史沿革
+
+### 2.1 发展阶段
+
+| 阶段 | 时期 | 特征 |
+| --- | --- | --- |
+${historyRows}
+
+## 三、常见坑点与避坑建议
+
+${pitfallRows}
+
+## 四、总结
+
+${meta.summary}
+
+---
+*本报告由 Systematically Learn and Do 自动生成*`;
+
+  return { content, wordCount: content.replace(/\s/g, '').length };
 }

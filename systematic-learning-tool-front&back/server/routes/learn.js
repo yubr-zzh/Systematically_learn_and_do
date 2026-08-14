@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
-import { runFullResearch } from '../services/aiService.js';
+import { runLearnAnalysis } from '../services/aiService.js';
 
 const router = Router();
 
@@ -91,11 +91,9 @@ router.post('/', async (req, res) => {
       VALUES (?, ?, ?, ?, 'generating', 0, ?, ?)
     `).run(id, subject, subject, category, now, now);
     
-    // Create stages
+    // Create stages (学习只做横纵分析)
     const stages = [
       { id: 'analysis', name: '横纵分析', status: 'active', progress: 0 },
-      { id: 'research', name: '深度调研', status: 'pending', progress: 0 },
-      { id: 'planning', name: '规划建议', status: 'pending', progress: 0 },
     ];
     
     const insertStage = db.prepare(`
@@ -114,8 +112,8 @@ router.post('/', async (req, res) => {
       );
     });
 
-    // Start async research
-    runFullResearch(subject, category, { depth })
+    // 启动异步横纵分析（学习流程）
+    runLearnAnalysis(subject, category, { depth })
       .then(result => {
         // Update report with final content
         db.prepare(`
@@ -124,23 +122,13 @@ router.post('/', async (req, res) => {
           WHERE id = ?
         `).run(result.content, result.wordCount, new Date().toISOString(), id);
         
-        // Update stages
+        // Update stage
         db.prepare(`
           UPDATE learn_stages SET status = 'done', progress = 100, content = ?
           WHERE report_id = ? AND stage_id = ?
         `).run(result.stages.analysis.content, id, 'analysis');
         
-        db.prepare(`
-          UPDATE learn_stages SET status = 'done', progress = 100, content = ?
-          WHERE report_id = ? AND stage_id = ?
-        `).run(result.stages.research.content, id, 'research');
-        
-        db.prepare(`
-          UPDATE learn_stages SET status = 'done', progress = 100, content = ?
-          WHERE report_id = ? AND stage_id = ?
-        `).run(result.stages.planning.content, id, 'planning');
-        
-        console.log(`Research completed for: ${subject}`);
+        console.log(`[Learn] 横纵分析完成: ${subject}`);
       })
       .catch(error => {
         console.error('Research failed:', error);

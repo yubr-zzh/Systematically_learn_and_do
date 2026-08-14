@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
+import { runProjectResearch } from '../services/aiService.js';
 
 const router = Router();
 
@@ -84,10 +85,9 @@ router.post('/', (req, res) => {
       VALUES (?, ?, ?, ?, 'planning', 0, ?, ?, ?, ?, ?)
     `).run(id, name, description, type, now, now, dueDate || null, startDate || null, refLink || null);
 
-    // Create default stages
+    // Create default stages (项目只做深度调研 + 规划)
     const stages = [
-      { id: 'analysis', name: '横纵分析', status: 'pending', progress: 0 },
-      { id: 'research', name: '深度调研', status: 'pending', progress: 0 },
+      { id: 'research', name: '深度调研', status: 'active', progress: 0 },
       { id: 'planning', name: '规划建议', status: 'pending', progress: 0 },
     ];
     
@@ -99,6 +99,30 @@ router.post('/', (req, res) => {
     stages.forEach(stage => {
       insertStage.run(`${id}-${stage.id}`, id, stage.id, stage.name, stage.status, stage.progress);
     });
+
+    // 启动异步深度调研 + 规划（项目流程）
+    runProjectResearch(name, description)
+      .then(result => {
+        db.prepare(`
+          UPDATE projects SET content = ?, word_count = ?, updated_at = ?
+          WHERE id = ?
+        `).run(result.content, result.wordCount, new Date().toISOString(), id);
+        
+        db.prepare(`
+          UPDATE project_stages SET status = 'done', progress = 100, content = ?
+          WHERE project_id = ? AND stage_id = ?
+        `).run(result.stages.research.content, id, 'research');
+        
+        db.prepare(`
+          UPDATE project_stages SET status = 'done', progress = 100, content = ?
+          WHERE project_id = ? AND stage_id = ?
+        `).run(result.stages.planning.content, id, 'planning');
+        
+        console.log(`[Project] 调研+规划完成: ${name}`);
+      })
+      .catch(error => {
+        console.error('[Project] 调研+规划失败:', error);
+      });
 
     res.status(201).json({ id, name, status: 'planning' });
   } catch (error) {
