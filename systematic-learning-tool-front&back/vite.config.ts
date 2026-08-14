@@ -17,6 +17,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5174,
     // 本地开发时把 /api 转发到 Node 后端
     proxy: {
       "/api": {
