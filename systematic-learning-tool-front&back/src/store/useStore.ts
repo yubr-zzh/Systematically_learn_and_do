@@ -305,16 +305,20 @@ export const useStore = create<AppState>((set, get) => ({
     set(s => ({ reports: s.reports.map(r => r.id === id ? { ...r, favorite: !r.favorite } : r) }));
   },
 
-  archiveReport: id => {
+  archiveReport: async id => {
     const report = get().reports.find(r => r.id === id);
-    if (report) {
-      // status update is done locally; backend stores it via a separate endpoint if needed
+    if (!report) return;
+    const nextStatus = report.status === "archived" ? "completed" : "archived";
+    try {
+      await api.updateReport(id, { status: nextStatus });
+      set(s => ({
+        reports: s.reports.map(r =>
+          r.id === id ? { ...r, status: nextStatus as LearnReport["status"], updatedAt: new Date().toISOString() } : r
+        ),
+      }));
+    } catch (e) {
+      get().toast("error", `归档失败：${(e as Error).message}`);
     }
-    set(s => ({
-      reports: s.reports.map(r =>
-        r.id === id ? { ...r, status: r.status === "archived" ? "completed" : "archived" as LearnReport["status"] } : r
-      ),
-    }));
   },
 
   deleteReport: async id => {
@@ -344,12 +348,20 @@ export const useStore = create<AppState>((set, get) => ({
     set(s => ({ projects: s.projects.map(p => p.id === id ? { ...p, ...patch } : p) }));
   },
 
-  archiveProject: id => {
-    set(s => ({
-      projects: s.projects.map(p =>
-        p.id === id ? { ...p, status: p.status === "archived" ? "in_progress" : "archived" as ProjectStatus } : p
-      ),
-    }));
+  archiveProject: async id => {
+    const project = get().projects.find(p => p.id === id);
+    if (!project) return;
+    const nextStatus = project.status === "archived" ? "in_progress" : "archived";
+    try {
+      await api.updateProject(id, { status: nextStatus });
+      set(s => ({
+        projects: s.projects.map(p =>
+          p.id === id ? { ...p, status: nextStatus as ProjectStatus } : p
+        ),
+      }));
+    } catch (e) {
+      get().toast("error", `归档失败：${(e as Error).message}`);
+    }
   },
 
   deleteProject: async id => {
@@ -393,8 +405,17 @@ export const useStore = create<AppState>((set, get) => ({
     }));
   },
 
-  markProjectDone: id => {
-    set(s => ({ projects: s.projects.map(p => p.id === id ? { ...p, status: "completed" as ProjectStatus, progress: 100 } : p) }));
+  markProjectDone: async id => {
+    try {
+      await api.updateProject(id, { status: "completed", progress: 100 });
+      set(s => ({
+        projects: s.projects.map(p =>
+          p.id === id ? { ...p, status: "completed" as ProjectStatus, progress: 100 } : p
+        ),
+      }));
+    } catch (e) {
+      get().toast("error", `更新失败：${(e as Error).message}`);
+    }
   },
 
   // ==================== 反馈 ====================

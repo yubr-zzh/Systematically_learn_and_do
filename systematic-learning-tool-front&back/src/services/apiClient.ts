@@ -38,7 +38,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ subject, category, depth }),
     }),
-  updateReport: (id: string, patch: Partial<{ favorite: boolean; content: string }>) =>
+  updateReport: (id: string, patch: Partial<{ favorite: boolean; content: string; status: string; title: string }>) =>
     request<void>(`/api/learn/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReport: (id: string) => request<void>(`/api/learn/${id}`, { method: 'DELETE' }),
 

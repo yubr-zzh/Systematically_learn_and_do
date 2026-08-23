@@ -151,20 +151,20 @@ router.post('/', async (req, res) => {
   }
 });
 
-// Update learn report (e.g., toggle favorite)
+// Update learn report (e.g., toggle favorite, archive)
 router.patch('/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const { favorite, title, content } = req.body;
-    
+    const { favorite, title, content, status } = req.body;
+
     const report = db.prepare('SELECT * FROM learn_reports WHERE id = ?').get(id);
     if (!report) {
       return res.status(404).json({ error: 'Report not found' });
     }
-    
+
     const updates = [];
     const params = [];
-    
+
     if (favorite !== undefined) {
       updates.push('favorite = ?');
       params.push(favorite ? 1 : 0);
@@ -178,6 +178,11 @@ router.patch('/:id', (req, res) => {
       params.push(content);
       updates.push('word_count = ?');
       params.push(content.replace(/\s/g, '').length);
+    }
+    if (status !== undefined) {
+      // NOTE: enum validation lives in Step 3.2 (shared runtime schema).
+      updates.push('status = ?');
+      params.push(status);
     }
     
     if (updates.length > 0) {
