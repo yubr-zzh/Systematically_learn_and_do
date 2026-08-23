@@ -191,7 +191,7 @@ interface AppState {
   importData: (json: string) => boolean;
   clearHistory: () => void;
   syncNow: () => void;
-  processFeedbackAndEvolve: (reportTitle: string, rating: number, improvements: string) => void;
+  processFeedbackAndEvolve: (reportId: string | undefined, reportTitle: string, rating: number, improvements: string) => Promise<void>;
 }
 
 export const useStore = create<AppState>((set, get) => ({
@@ -349,7 +349,9 @@ export const useStore = create<AppState>((set, get) => ({
               category: report.category,
               status: "active",
               author: "AI自动生成",
-              tags: tpl.tags,
+              // Include `report:<id>` so processFeedbackAndEvolve can find
+              // the originating Skill for a given report's feedback.
+              tags: [...tpl.tags, `report:${id}`],
             });
             get().addEvolutionLog({
               type: "skill_created",
@@ -527,7 +529,9 @@ export const useStore = create<AppState>((set, get) => ({
     const item: FeedbackItem = { ...f, id: res.id, createdAt: new Date().toISOString() };
     set(s => ({ feedbacks: [item, ...s.feedbacks] }));
     // 触发自进化
-    setTimeout(() => get().processFeedbackAndEvolve(f.reportTitle, f.rating, f.improvements), 500);
+    setTimeout(() => {
+      get().processFeedbackAndEvolve(f.reportId, f.reportTitle, f.rating, f.improvements).catch(() => {});
+    }, 500);
     get().toast("success", "感谢你的反馈！");
   },
 
@@ -601,25 +605,76 @@ export const useStore = create<AppState>((set, get) => ({
 
   // ==================== 反馈驱动的自进化 ====================
 
-  processFeedbackAndEvolve: (reportTitle: string, rating: number, improvements: string) => {
-    if (rating < 3 || !improvements.trim()) return;
-    const relatedSkill = get().skills.find(s =>
-      reportTitle.includes(s.name) || s.tags.some(t => reportTitle.toLowerCase().includes(t))
-    );
-    if (relatedSkill) {
-      api.updateSkill(relatedSkill.id, { status: "watch" });
+  processFeedbackAndEvolve: async (reportId: string | undefined, reportTitle: string, rating: number, improvements: string) => {
+    const trimmedImprovements = improvements.trim();
+    if (!trimmedImprovements) return;
+
+    // Auto-created Skills carry a 'report:<id>' tag (see refreshReport's
+    // completed branch). Use that to find the Skill that originated from
+    // this report, instead of fragile name/tag substring matching.
+    const sourceTag = reportId ? `report:${reportId}` : null;
+    const relatedSkill = sourceTag ? get().skills.find(s => s.tags.includes(sourceTag)) : undefined;
+
+    if (!relatedSkill) {
+      // No linked Skill — feedback is still logged so a Curator step
+      // (later) can scan for repeat feedback on the same report title.
+      get().addEvolutionLog({
+        type: "feedback_processed",
+        subject: reportTitle,
+        description: `收到反馈（${rating}星）：${trimmedImprovements.slice(0, 50)}...`,
+      });
+      return;
+    }
+
+    // Update the Skill's running rating (exponential moving average, alpha=0.4
+    // so recent feedback counts more than ancient history).
+    const prevRating = relatedSkill.rating || 0;
+    const newRating = prevRating === 0 ? rating : Number((prevRating * 0.6 + rating * 0.4).toFixed(2));
+
+    // Append the feedback as an "改进点" section. We replace the old
+    // feedback section rather than stack them, so the Skill carries
+    // only the latest improvement note.
+    const FEEDBACK_SECTION_HEADER = "## 改进点（来自反馈）";
+    const sections = relatedSkill.content.split(/\n(?=##\s)/);
+    const withoutOldFeedback = sections.filter(s => !s.startsWith(FEEDBACK_SECTION_HEADER));
+    const newEntry = [
+      FEEDBACK_SECTION_HEADER,
+      "",
+      `> ${new Date().toLocaleString("zh-CN")} · 评分 ${rating}星`,
+      "",
+      trimmedImprovements,
+    ].join("\n");
+    const updatedContent = [...withoutOldFeedback, newEntry].join("\n\n").replace(/\n{3,}/g, "\n\n");
+
+    // Low ratings flag the Skill for the Curator's attention — but
+    // respect user-curated states (pinned always stays pinned,
+    // archived stays archived so a Curator-side restore can find it).
+    let nextStatus: SkillStatus = relatedSkill.status;
+    if (rating < 3 && relatedSkill.status === "active") {
+      nextStatus = "watch";
+    }
+
+    try {
+      await api.updateSkill(relatedSkill.id, {
+        content: updatedContent,
+        rating: newRating,
+        status: nextStatus,
+      });
+      set(s => ({
+        skills: s.skills.map(sk =>
+          sk.id === relatedSkill.id
+            ? { ...sk, content: updatedContent, rating: newRating, status: nextStatus, updatedAt: new Date().toISOString(), version: sk.version + 1 }
+            : sk
+        ),
+      }));
       get().addEvolutionLog({
         type: "feedback_processed",
         subject: reportTitle,
         skillName: relatedSkill.name,
-        description: `收到改进建议: ${improvements.slice(0, 50)}...`,
+        description: `已写入 Skill (v${relatedSkill.version + 1}, 评分 ${newRating}${rating < 3 ? ", 标记为观察中" : ""}): ${trimmedImprovements.slice(0, 50)}...`,
       });
-    } else {
-      get().addEvolutionLog({
-        type: "feedback_processed",
-        subject: reportTitle,
-        description: `新反馈触发 Skill 优化建议: ${improvements.slice(0, 50)}...`,
-      });
+    } catch (e) {
+      get().toast("error", `Skill 进化失败：${(e as Error).message}`);
     }
   },
 
