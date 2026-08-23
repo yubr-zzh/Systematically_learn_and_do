@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { config, validateConfig } from './config.js';
 import { initDatabase } from './db/database.js';
 import { seedSkills } from './db/seed.js';
+import { startCuratorLoop } from './services/curator.js';
 import learnRoutes from './routes/learn.js';
 import projectRoutes from './routes/projects.js';
 import feedbackRoutes from './routes/feedback.js';
@@ -78,6 +79,9 @@ async function start() {
 
     // Seed skills from skills folder
     seedSkills();
+
+    // Curator: periodic Skill lifecycle maintenance (active → watch → stale → archived)
+    startCuratorLoop();
 
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
