@@ -6,8 +6,11 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import dotenv from 'dotenv';
 
+// IMPORTANT: config.js must be imported first so that dotenv.config()
+// has already populated process.env before any other module reads it
+// at top level (e.g. database.js captures process.env.DB_PATH).
+import { config, validateConfig } from './config.js';
 import { initDatabase } from './db/database.js';
 import { seedSkills } from './db/seed.js';
 import learnRoutes from './routes/learn.js';
@@ -19,13 +22,11 @@ import researchRoutes from './routes/research.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { requestLogger } from './middleware/logger.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = config.port;
 
 // Middleware
 app.use(cors());
@@ -49,9 +50,9 @@ app.get('/api/health', (req, res) => {
 });
 
 // Serve static files in production
-if (process.env.NODE_ENV === 'production') {
+if (config.nodeEnv === 'production') {
   app.use(express.static(path.join(__dirname, '../dist')));
-  
+
   app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
@@ -63,15 +64,24 @@ app.use(errorHandler);
 // Initialize database and start server
 async function start() {
   try {
+    // Surface missing / placeholder env before doing anything else
+    const { problems } = validateConfig();
+    if (problems.length) {
+      console.warn('⚠️  Configuration warnings:');
+      problems.forEach(p => console.warn(`   - ${p}`));
+    } else {
+      console.log('✅  Configuration OK (AI key present)');
+    }
+
     await initDatabase();
     console.log('Database initialized');
-    
+
     // Seed skills from skills folder
     seedSkills();
-    
+
     app.listen(PORT, () => {
       console.log(`Server running on http://localhost:${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Environment: ${config.nodeEnv}`);
     });
   } catch (error) {
     console.error('Failed to start server:', error);

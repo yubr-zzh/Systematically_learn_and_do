@@ -5,15 +5,11 @@
 
 import fetch from 'node-fetch';
 import https from 'node:https';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
+import { config } from '../config.js';
 
-dotenv.config({ path: resolve(dirname(fileURLToPath(import.meta.url)), '../../.env') });
-
-const API_KEY = process.env.DEEPSEEK_API_KEY || process.env.API_KEY;
-const API_BASE_URL = process.env.API_BASE_URL || 'https://api.deepseek.com/v1';
-const MODEL = process.env.AI_MODEL || 'deepseek-chat';
+const API_KEY = config.apiKey;
+const API_BASE_URL = config.apiBaseUrl;
+const MODEL = config.aiModel;
 
 // Bypass system proxy for AI API calls
 const httpsAgent = new https.Agent({ proxy: false });
