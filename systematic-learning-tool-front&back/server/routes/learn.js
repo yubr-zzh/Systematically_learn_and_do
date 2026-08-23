@@ -4,7 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
-import { runLearnAnalysis } from '../services/aiService.js';
+import { streamLearnAnalysis } from '../services/learnStream.js';
 
 const router = Router();
 
@@ -112,26 +112,34 @@ router.post('/', async (req, res) => {
       );
     });
 
-    // 启动异步横纵分析（学习流程）
-    runLearnAnalysis(subject, category, { depth })
-      .then(result => {
-        // Update report with final content
+    // 启动异步横纵分析（学习流程）。通过 streamLearnAnalysis 拿到
+    // progress / complete / error 事件，并把进度实时写库，这样 SSE 客户端
+    // 可以在中途连接进来也能同步看到进度。
+    const emitter = streamLearnAnalysis(subject, category, { depth });
+    emitter
+      .on('progress', ({ progress }) => {
         db.prepare(`
-          UPDATE learn_reports 
+          UPDATE learn_reports SET progress = ?, updated_at = ?
+          WHERE id = ?
+        `).run(progress, new Date().toISOString(), id);
+      })
+      .on('complete', (result) => {
+        db.prepare(`
+          UPDATE learn_reports
           SET content = ?, word_count = ?, progress = 100, status = 'completed', updated_at = ?
           WHERE id = ?
         `).run(result.content, result.wordCount, new Date().toISOString(), id);
-        
-        // Update stage
+
+        // Update stage (legacy single-stage table)
         db.prepare(`
           UPDATE learn_stages SET status = 'done', progress = 100, content = ?
           WHERE report_id = ? AND stage_id = ?
-        `).run(result.stages.analysis.content, id, 'analysis');
-        
+        `).run(result.content, id, 'analysis');
+
         console.log(`[Learn] 横纵分析完成: ${subject}`);
       })
-      .catch(error => {
-        console.error('Research failed:', error);
+      .on('error', (err) => {
+        console.error('Research failed:', err);
         db.prepare(`
           UPDATE learn_reports SET status = 'error', updated_at = ?
           WHERE id = ?
@@ -217,7 +225,7 @@ router.get('/:id/versions', (req, res) => {
   try {
     const { id } = req.params;
     const versions = db.prepare(`
-      SELECT id, version, created_at FROM report_versions 
+      SELECT id, version, created_at FROM report_versions
       WHERE report_id = ? ORDER BY version DESC
     `).all(id);
     res.json(versions);
@@ -225,6 +233,90 @@ router.get('/:id/versions', (req, res) => {
     console.error('Error fetching versions:', error);
     res.status(500).json({ error: 'Failed to fetch versions' });
   }
+});
+
+// -------------------------------------------------------------
+// SSE: stream progress / completion for a Learn report
+//
+// The frontend opens EventSource('/api/learn/:id/stream') right after
+// POST /api/learn. We DO NOT trigger AI generation here — POST /api/learn
+// already kicks it off and writes results to the DB. This handler just
+// watches the DB row and forwards events:
+//   - 'progress' whenever the row's progress value changes
+//   - 'complete' when status flips to 'completed' (with full content)
+//   - 'error' when status flips to 'error'
+//
+// This keeps the single source of truth in the DB and avoids the SSE
+// endpoint re-running the AI call.
+// -------------------------------------------------------------
+router.get('/:id/stream', (req, res) => {
+  const { id } = req.params;
+  const report = db.prepare('SELECT * FROM learn_reports WHERE id = ?').get(id);
+  if (!report) {
+    return res.status(404).json({ error: 'Report not found' });
+  }
+
+  // SSE response headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // disable nginx buffering if proxied
+  res.flushHeaders?.();
+
+  const sendEvent = (event, payload) => {
+    if (res.writableEnded) return;
+    res.write(`event: ${event}\ndata: ${JSON.stringify(payload)}\n\n`);
+  };
+
+  // Short-circuit on terminal states
+  if (report.status === 'completed') {
+    sendEvent('complete', { content: report.content, wordCount: report.word_count });
+    return res.end();
+  }
+  if (report.status === 'error') {
+    sendEvent('error', { message: 'Report failed' });
+    return res.end();
+  }
+
+  // Watch the DB row. Emit progress when the stored value changes,
+  // terminal events when status flips.
+  let lastProgress = report.progress ?? 0;
+  const stmt = db.prepare('SELECT status, progress, content, word_count FROM learn_reports WHERE id = ?');
+
+  // Ship an immediate progress so the UI knows we're streaming.
+  sendEvent('progress', { progress: lastProgress });
+
+  const interval = setInterval(() => {
+    if (res.writableEnded) {
+      clearInterval(interval);
+      return;
+    }
+    const row = stmt.get(id);
+    if (!row) {
+      sendEvent('error', { message: 'Report vanished' });
+      clearInterval(interval);
+      return res.end();
+    }
+    if (row.status === 'completed') {
+      sendEvent('complete', { content: row.content, wordCount: row.word_count });
+      clearInterval(interval);
+      return res.end();
+    }
+    if (row.status === 'error') {
+      sendEvent('error', { message: 'Report failed' });
+      clearInterval(interval);
+      return res.end();
+    }
+    if ((row.progress ?? 0) !== lastProgress) {
+      lastProgress = row.progress ?? 0;
+      sendEvent('progress', { progress: lastProgress });
+    }
+  }, 1000);
+
+  req.on('close', () => {
+    clearInterval(interval);
+    if (!res.writableEnded) res.end();
+  });
 });
 
 export default router;
