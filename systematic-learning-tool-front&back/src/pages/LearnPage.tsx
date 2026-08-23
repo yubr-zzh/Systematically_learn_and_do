@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useMemo, useState } from "react";
-import { ArrowRight, Archive, ArchiveRestore, BookOpen, CalendarDays, FileText, Loader2, Search, Sparkles, Star, Trash2 } from "lucide-react";
+import { ArrowRight, Archive, ArchiveRestore, BookOpen, CalendarDays, FileText, Loader2, RefreshCw, Search, Sparkles, Star, Trash2 } from "lucide-react";
 import { cn } from "../utils/cn";
 import { useStore } from "../store/useStore";
 import type { CategoryId, LearnReport } from "../types";
@@ -24,7 +24,7 @@ const QUICK_TAGS: { label: string; category: CategoryId }[] = [
 type Filter = "all" | "completed" | "archived" | "favorite";
 
 export function LearnPage() {
-  const { reports, startLearn, toggleFavorite, deleteReport, archiveReport } = useStore();
+  const { reports, startLearn, refreshReport, toggleFavorite, deleteReport, archiveReport, stuckReportIds } = useStore();
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState<CategoryId>("ai");
   const [search, setSearch] = useState("");
@@ -36,6 +36,8 @@ export function LearnPage() {
   const generating = reports.filter((r) => r.status === "generating");
 
   const filtered = useMemo(() => {
+    // 历史列表排除「生成中」（在专用的 “生成中的报告” 区展示），
+    // 但保留「生成失败」，让用户可以查看/重新触发归档/删除。
     let list = reports.filter((r) => r.status !== "generating");
     if (filter === "completed") list = list.filter((r) => r.status === "completed");
     if (filter === "archived") list = list.filter((r) => r.status === "archived");
@@ -153,19 +155,38 @@ export function LearnPage() {
             生成中的报告
           </h2>
           <div className="space-y-4">
-            {generating.map((r) => (
-              <div key={r.id} className="animate-slide-up">
-                <div className="mb-3 flex items-center justify-between">
-                  <p className="text-[15px] font-bold text-ink-900 dark:text-forest-100">
-                    {r.subject} <span className="ml-1 text-xs font-medium text-ink-600 dark:text-forest-300/70">({CATEGORIES.find((c) => c.id === r.category)?.label})</span>
-                  </p>
-                  <button onClick={() => navigateTo("learn", r.id)} className="btn-ghost !py-1 !text-[13px]">
-                    查看详情 <ArrowRight size={14} />
-                  </button>
+            {generating.map((r) => {
+              const stuck = stuckReportIds.includes(r.id);
+              return (
+                <div key={r.id} className="animate-slide-up">
+                  <div className="mb-3 flex items-center justify-between">
+                    <p className="text-[15px] font-bold text-ink-900 dark:text-forest-100">
+                      {r.subject} <span className="ml-1 text-xs font-medium text-ink-600 dark:text-forest-300/70">({CATEGORIES.find((c) => c.id === r.category)?.label})</span>
+                    </p>
+                    <div className="flex items-center gap-2">
+                      {stuck && (
+                        <button
+                          onClick={() => refreshReport(r.id)}
+                          className="btn-soft !py-1 !text-[13px]"
+                          title="后端可能仍在生成中，点击重新检查进度"
+                        >
+                          <RefreshCw size={13} /> 手动刷新
+                        </button>
+                      )}
+                      <button onClick={() => navigateTo("learn", r.id)} className="btn-ghost !py-1 !text-[13px]">
+                        查看详情 <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <StageProgress stages={r.stages} overall={r.progress} />
+                  {stuck && (
+                    <p className="mt-2 text-xs text-amberx">
+                      已超过自动轮询时长。可点击「手动刷新」继续检查；若后端已失败，状态会自动转为「生成失败」。
+                    </p>
+                  )}
                 </div>
-                <StageProgress stages={r.stages} overall={r.progress} />
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
       )}

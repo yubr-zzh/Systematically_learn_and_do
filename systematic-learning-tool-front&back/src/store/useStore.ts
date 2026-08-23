@@ -25,6 +25,20 @@ import { api } from "../services/apiClient";
 
 export const uid = () => `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
+// ---- Learn report polling ----
+// How long to wait between polls while a report is still generating.
+export const LEARN_POLL_INTERVAL_MS = 2000;
+// Hard cap on auto-polling. After this many failed attempts (== 2 min by
+// default), we stop polling and surface a 'stuck' badge so the user can
+// manually retry instead of staring at a frozen spinner.
+export const LEARN_POLL_MAX_ATTEMPTS = 60;
+export const LEARN_POLL_TIMEOUT_SECONDS =
+  ((LEARN_POLL_MAX_ATTEMPTS - 1) * LEARN_POLL_INTERVAL_MS) / 1000;
+
+// In-flight poller registry. Module-scoped so two store instances (tests,
+// HMR, double mount) can't race on the same report id.
+const pollingIds = new Set<string>();
+
 const DEFAULT_SETTINGS: UserSettings = {
   username: "学习者",
   avatar: "🌱",
@@ -132,6 +146,8 @@ interface AppState {
   settings: UserSettings;
   toasts: ToastMsg[];
   loading: boolean;
+  /** Reports whose auto-polling hit the timeout cap. UI shows a retry button. */
+  stuckReportIds: string[];
 
   setRouter: (r: RouterState) => void;
   toast: (type: ToastMsg["type"], message: string) => void;
@@ -143,6 +159,7 @@ interface AppState {
 
   // 学习报告
   startLearn: (subject: string, category: CategoryId, depth?: string) => Promise<string>;
+  refreshReport: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => void;
   archiveReport: (id: string) => void;
   deleteReport: (id: string) => void;
@@ -191,6 +208,7 @@ export const useStore = create<AppState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   toasts: [],
   loading: false,
+  stuckReportIds: [],
 
   setRouter: r => set({ router: r }),
   setLoading: v => set({ loading: v }),
@@ -226,6 +244,10 @@ export const useStore = create<AppState>((set, get) => ({
         })),
         settings: settings ? { ...DEFAULT_SETTINGS, ...settings } : DEFAULT_SETTINGS,
       });
+      // Re-attach polling for any report that was mid-generation when we
+      // last closed the tab — otherwise it would be an orphaned spinner.
+      const orphans = (reports || []).filter(r => r.status === "generating");
+      orphans.forEach(r => { get().refreshReport(r.id).catch(() => {}); });
     } finally {
       set({ loading: false });
     }
@@ -244,11 +266,31 @@ export const useStore = create<AppState>((set, get) => ({
       createdAt: now, updatedAt: now,
     };
     set(s => ({ reports: [report, ...s.reports] }));
+    // Fire and forget — refreshReport() is callable from the UI for retries.
+    get().refreshReport(id).catch(() => {});
+    return id;
+  },
 
-    // 轮询等待报告完成
-    const poll = async () => {
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 2000));
+  /**
+   * Poll a report until it's completed, errors out, or we hit the timeout cap.
+   * On timeout the report is flagged in stuckReportIds so the UI can show a
+   * manual retry button instead of a frozen spinner.
+   *
+   * Safe to call concurrently for the same id — the module-level
+   * `pollingIds` set rejects re-entry.
+   */
+  refreshReport: async (id) => {
+    if (pollingIds.has(id)) return;
+    const report = get().reports.find(r => r.id === id);
+    if (!report) return;
+    pollingIds.add(id);
+    // Clear any previous stuck flag — we're actively polling again.
+    set(s => ({ stuckReportIds: s.stuckReportIds.filter(x => x !== id) }));
+    try {
+      for (let attempt = 0; attempt < LEARN_POLL_MAX_ATTEMPTS; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, LEARN_POLL_INTERVAL_MS));
+        // The report may have been deleted while we were waiting — bail.
+        if (!get().reports.some(r => r.id === id)) return;
         try {
           const r = await api.getReport(id);
           if (r.status === "completed") {
@@ -261,42 +303,69 @@ export const useStore = create<AppState>((set, get) => ({
                   updatedAt: new Date().toISOString(),
                 } : rp
               ),
+              stuckReportIds: s.stuckReportIds.filter(x => x !== id),
             }));
-            get().toast("success", `「${subject}」报告生成完成 🎉`);
-            // 自进化：自动创建 Skill
+            get().toast("success", `「${report.subject}」报告生成完成 🎉`);
+            // 自进化：自动创建 Skill（独立 try/catch，避免网络抖动把已经成功的
+            // 报告状态给覆盖掉）
             if ((r.content || "").length > 500) {
-              const template = extractTemplate(r.content);
-              await get().addSkill({
-                name: `${subject} 研究模板`,
-                description: `基于「${subject}」研究经验自动生成`,
-                content: template,
-                category,
-                status: "active",
-                author: "AI自动生成",
-                tags: [subject.toLowerCase().split(" ")[0]],
-              });
-              get().addEvolutionLog({
-                type: "skill_created",
-                subject,
-                skillName: `${subject} 研究模板`,
-                description: `基于「${subject}」报告自动生成学习模板`,
-              });
+              try {
+                const template = extractTemplate(r.content);
+                await get().addSkill({
+                  name: `${report.subject} 研究模板`,
+                  description: `基于「${report.subject}」研究经验自动生成`,
+                  content: template,
+                  category: report.category,
+                  status: "active",
+                  author: "AI自动生成",
+                  tags: [report.subject.toLowerCase().split(" ")[0]],
+                });
+                get().addEvolutionLog({
+                  type: "skill_created",
+                  subject: report.subject,
+                  skillName: `${report.subject} 研究模板`,
+                  description: `基于「${report.subject}」报告自动生成学习模板`,
+                });
+              } catch (e) {
+                console.warn("[Skill] auto-create failed:", e);
+              }
             }
             return;
           }
-          if (r.status === "error" || r.status === "generating") {
-            const prog = r.progress ?? 3;
+          if (r.status === "error") {
+            // 终态：后端已经放弃，停止轮询并标记失败。
             set(s => ({
               reports: s.reports.map(rp =>
-                rp.id === id ? { ...rp, progress: prog, stages: deriveStages(prog), updatedAt: new Date().toISOString() } : rp
+                rp.id === id ? {
+                  ...rp, status: "error" as const, updatedAt: new Date().toISOString(),
+                } : rp
               ),
+              stuckReportIds: s.stuckReportIds.filter(x => x !== id),
             }));
+            get().toast("error", `「${report.subject}」报告生成失败，请删除后重试或调整主题。`);
+            return;
           }
-        } catch { /* 忽略轮询错误 */ }
+          // status === 'generating': just bump progress
+          const prog = r.progress ?? 3;
+          set(s => ({
+            reports: s.reports.map(rp =>
+              rp.id === id ? { ...rp, progress: prog, stages: deriveStages(prog), updatedAt: new Date().toISOString() } : rp
+            ),
+          }));
+        } catch {
+          // Network blip — keep polling.
+        }
       }
-    };
-    poll();
-    return id;
+
+      // Timeout: flag the report so UI can offer a retry.
+      set(s => s.stuckReportIds.includes(id) ? s : { stuckReportIds: [...s.stuckReportIds, id] });
+      get().toast(
+        "info",
+        `「${report.subject}」报告生成较慢（已等待 ${LEARN_POLL_TIMEOUT_SECONDS} 秒）。点击"手动刷新"可继续检查进度。`
+      );
+    } finally {
+      pollingIds.delete(id);
+    }
   },
 
   toggleFavorite: id => {
@@ -308,12 +377,19 @@ export const useStore = create<AppState>((set, get) => ({
   archiveReport: async id => {
     const report = get().reports.find(r => r.id === id);
     if (!report) return;
-    const nextStatus = report.status === "archived" ? "completed" : "archived";
+    // Toggle: archiving is always allowed; un-archiving restores "completed"
+    // only if the report actually has content (wordCount > 0). A failed
+    // report (wordCount === 0) goes back to "error" so it doesn't masquerade
+    // as a successful one in the history list.
+    const isCurrentlyArchived = report.status === "archived";
+    const nextStatus: LearnReport["status"] = isCurrentlyArchived
+      ? report.wordCount > 0 ? "completed" : "error"
+      : "archived";
     try {
       await api.updateReport(id, { status: nextStatus });
       set(s => ({
         reports: s.reports.map(r =>
-          r.id === id ? { ...r, status: nextStatus as LearnReport["status"], updatedAt: new Date().toISOString() } : r
+          r.id === id ? { ...r, status: nextStatus, updatedAt: new Date().toISOString() } : r
         ),
       }));
     } catch (e) {

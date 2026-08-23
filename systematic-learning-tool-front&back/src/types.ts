@@ -21,7 +21,7 @@ export interface StageInfo {
   progress: number;
 }
 
-export type ReportStatus = "generating" | "completed" | "archived";
+export type ReportStatus = "generating" | "completed" | "archived" | "error";
 
 export interface LearnReport {
   id: string;
@@ -168,6 +168,7 @@ export const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
   generating: { label: "生成中", cls: "bg-amberx/15 text-amberx" },
   completed: { label: "已完成", cls: "bg-forest-100 text-forest-600 dark:bg-night-700 dark:text-forest-300" },
   archived: { label: "已归档", cls: "bg-ink-200 text-ink-600 dark:bg-night-700 dark:text-forest-300/70" },
+  error: { label: "生成失败", cls: "bg-coral/15 text-coral" },
   planning: { label: "规划中", cls: "bg-skyx/15 text-skyx" },
   in_progress: { label: "进行中", cls: "bg-forest-100 text-forest-600 dark:bg-night-700 dark:text-forest-300" },
 };

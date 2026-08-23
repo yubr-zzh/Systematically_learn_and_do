@@ -3,7 +3,7 @@
 // ============================================================
 
 import { useState } from "react";
-import { Archive, ArchiveRestore, ArrowLeft, History, Link2, Loader2, Share2, Star } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowLeft, History, Link2, Loader2, RefreshCw, Share2, Star } from "lucide-react";
 import { useStore } from "../store/useStore";
 import { CATEGORIES } from "../types";
 import { CategoryBadge, ConfirmDialog, Modal, StatusBadge } from "../components/ui";
@@ -12,7 +12,7 @@ import { ReportViewer } from "../components/ReportViewer";
 import { navigateTo } from "../components/Header";
 
 export function LearnDetailPage({ id }: { id: string }) {
-  const { reports, toggleFavorite, archiveReport, deleteReport, toast } = useStore();
+  const { reports, toggleFavorite, archiveReport, deleteReport, refreshReport, stuckReportIds, toast } = useStore();
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const report = reports.find((r) => r.id === id);
@@ -99,14 +99,44 @@ export function LearnDetailPage({ id }: { id: string }) {
       </div>
 
       {/* 内容 */}
-      {report.status === "generating" ? (
+      {report.status === "error" ? (
+        <div className="card p-8 text-center space-y-4">
+          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-coral/15 text-coral text-2xl" aria-hidden>
+            ⚠
+          </div>
+          <h2 className="text-lg font-bold text-ink-900 dark:text-forest-100">报告生成失败</h2>
+          <p className="mx-auto max-w-md text-[14px] text-ink-600 dark:text-forest-300/80">
+            后端在生成「{report.subject}」时遇到问题。你可以删除这条记录后用同一个主题重试，或者调整主题表述。
+          </p>
+          <div className="flex justify-center gap-2">
+            <button onClick={() => setConfirmDelete(true)} className="btn-danger">删除记录</button>
+            <button onClick={() => navigateTo("learn")} className="btn-soft">返回列表</button>
+          </div>
+        </div>
+      ) : report.status === "generating" ? (
         <div className="space-y-6">
           <StageProgress stages={report.stages} overall={report.progress} />
           <div className="card p-6 space-y-3" aria-busy="true" aria-label="报告加载中">
-            <div className="flex items-center gap-2 text-sm font-semibold text-ink-600 dark:text-forest-300/70">
-              <Loader2 size={15} className="animate-[spin_2s_linear_infinite] text-forest-500" />
-              正在生成报告内容，完成后将自动呈现…
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-ink-600 dark:text-forest-300/70">
+                <Loader2 size={15} className="animate-[spin_2s_linear_infinite] text-forest-500" />
+                正在生成报告内容，完成后将自动呈现…
+              </div>
+              {stuckReportIds.includes(report.id) && (
+                <button
+                  onClick={() => refreshReport(report.id)}
+                  className="btn-soft !py-1 !text-[13px]"
+                  title="后端可能仍在生成中，点击重新检查进度"
+                >
+                  <RefreshCw size={13} /> 手动刷新
+                </button>
+              )}
             </div>
+            {stuckReportIds.includes(report.id) && (
+              <p className="text-xs text-amberx">
+                已超过自动轮询时长。可点击「手动刷新」继续检查进度。
+              </p>
+            )}
             <DetailSkeletonLines />
           </div>
         </div>
