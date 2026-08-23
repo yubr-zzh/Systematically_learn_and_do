@@ -26,19 +26,14 @@ import { api } from "../services/apiClient";
 
 export const uid = () => `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-// ---- Learn report polling ----
-// How long to wait between polls while a report is still generating.
-export const LEARN_POLL_INTERVAL_MS = 2000;
-// Hard cap on auto-polling. After this many failed attempts (== 2 min by
-// default), we stop polling and surface a 'stuck' badge so the user can
-// manually retry instead of staring at a frozen spinner.
-export const LEARN_POLL_MAX_ATTEMPTS = 60;
-export const LEARN_POLL_TIMEOUT_SECONDS =
-  ((LEARN_POLL_MAX_ATTEMPTS - 1) * LEARN_POLL_INTERVAL_MS) / 1000;
+// ---- Learn report streaming ----
+// If no SSE event arrives within this window, we assume the stream died
+// and surface a 'stuck' badge so the user can manually retry.
+export const LEARN_STREAM_STALE_MS = 10_000;
 
-// In-flight poller registry. Module-scoped so two store instances (tests,
+// In-flight stream registry. Module-scoped so two store instances (tests,
 // HMR, double mount) can't race on the same report id.
-const pollingIds = new Set<string>();
+const streams = new Map<string, { close: () => void; staleTimer: ReturnType<typeof setTimeout> }>();
 
 const DEFAULT_SETTINGS: UserSettings = {
   username: "学习者",
@@ -273,100 +268,130 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   /**
-   * Poll a report until it's completed, errors out, or we hit the timeout cap.
-   * On timeout the report is flagged in stuckReportIds so the UI can show a
-   * manual retry button instead of a frozen spinner.
+   * Open (or re-open) an SSE stream for a Learn report. Streams events
+   * straight into the store; the caller doesn't need to await anything.
    *
    * Safe to call concurrently for the same id — the module-level
-   * `pollingIds` set rejects re-entry.
+   * `streams` map rejects re-entry. Manual retries from the UI work the
+   * same way: just call refreshReport(id) again and the existing stream
+   * is torn down first.
+   *
+   * Stuck detection: if no event arrives within LEARN_STREAM_STALE_MS,
+   * we flag the report so the UI can offer a retry button. The stale
+   * timer is reset on every event.
    */
   refreshReport: async (id) => {
-    if (pollingIds.has(id)) return;
+    if (streams.has(id)) return;
     const report = get().reports.find(r => r.id === id);
     if (!report) return;
-    pollingIds.add(id);
-    // Clear any previous stuck flag — we're actively polling again.
+    // Clear any previous stuck flag — we're actively streaming again.
     set(s => ({ stuckReportIds: s.stuckReportIds.filter(x => x !== id) }));
-    try {
-      for (let attempt = 0; attempt < LEARN_POLL_MAX_ATTEMPTS; attempt++) {
-        if (attempt > 0) await new Promise(r => setTimeout(r, LEARN_POLL_INTERVAL_MS));
-        // The report may have been deleted while we were waiting — bail.
-        if (!get().reports.some(r => r.id === id)) return;
-        try {
-          const r = await api.getReport(id);
-          if (r.status === "completed") {
-            set(s => ({
-              reports: s.reports.map(rp =>
-                rp.id === id ? {
-                  ...rp, progress: 100, stages: deriveStages(100),
-                  status: "completed" as const, content: r.content,
-                  wordCount: countWords(r.content),
-                  updatedAt: new Date().toISOString(),
-                } : rp
-              ),
-              stuckReportIds: s.stuckReportIds.filter(x => x !== id),
-            }));
-            get().toast("success", `「${report.subject}」报告生成完成 🎉`);
-            // 自进化：自动创建 Skill（独立 try/catch，避免网络抖动把已经成功的
-            // 报告状态给覆盖掉）
-            if ((r.content || "").length > 500) {
-              try {
-                const tpl = extractSkillTemplate(r.content, report.subject);
-                await get().addSkill({
-                  name: tpl.title,
-                  description: tpl.description,
-                  content: tpl.markdown,
-                  category: report.category,
-                  status: "active",
-                  author: "AI自动生成",
-                  tags: tpl.tags,
-                });
-                get().addEvolutionLog({
-                  type: "skill_created",
-                  subject: report.subject,
-                  skillName: tpl.title,
-                  description: `基于「${report.subject}」报告自动提炼模板（${tpl.headings.length} 个章节）`,
-                });
-              } catch (e) {
-                console.warn("[Skill] auto-create failed:", e);
-              }
-            }
-            return;
+
+    let controller: { close: () => void } | null = null;
+    let staleTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const tearDown = () => {
+      controller?.close();
+      if (staleTimer) clearTimeout(staleTimer);
+      streams.delete(id);
+    };
+
+    const armStaleTimer = () => {
+      if (staleTimer) clearTimeout(staleTimer);
+      staleTimer = setTimeout(() => {
+        tearDown();
+        set(s => s.stuckReportIds.includes(id) ? s : { stuckReportIds: [...s.stuckReportIds, id] });
+        get().toast(
+          "info",
+          `「${report.subject}」报告生成连接超时（${LEARN_STREAM_STALE_MS / 1000} 秒未收到事件）。点击"手动刷新"重连。`
+        );
+      }, LEARN_STREAM_STALE_MS);
+    };
+
+    controller = api.openLearnStream(id, {
+      onProgress: ({ progress }) => {
+        if (!get().reports.some(r => r.id === id)) {
+          tearDown();
+          return;
+        }
+        armStaleTimer();
+        set(s => ({
+          reports: s.reports.map(rp =>
+            rp.id === id ? { ...rp, progress, stages: deriveStages(progress), updatedAt: new Date().toISOString() } : rp
+          ),
+        }));
+      },
+      onComplete: async ({ content, wordCount }) => {
+        // CRITICAL: close the EventSource immediately. Without this the
+        // browser's built-in reconnect would re-attach to a now-terminal
+        // row forever.
+        tearDown();
+        set(s => ({
+          reports: s.reports.map(rp =>
+            rp.id === id ? {
+              ...rp, progress: 100, stages: deriveStages(100),
+              status: "completed" as const, content,
+              wordCount: wordCount || countWords(content),
+              updatedAt: new Date().toISOString(),
+            } : rp
+          ),
+          stuckReportIds: s.stuckReportIds.filter(x => x !== id),
+        }));
+        get().toast("success", `「${report.subject}」报告生成完成 🎉`);
+        // 自进化：自动创建 Skill（独立 try/catch）
+        if ((content || "").length > 500) {
+          try {
+            const tpl = extractSkillTemplate(content, report.subject);
+            await get().addSkill({
+              name: tpl.title,
+              description: tpl.description,
+              content: tpl.markdown,
+              category: report.category,
+              status: "active",
+              author: "AI自动生成",
+              tags: tpl.tags,
+            });
+            get().addEvolutionLog({
+              type: "skill_created",
+              subject: report.subject,
+              skillName: tpl.title,
+              description: `基于「${report.subject}」报告自动提炼模板（${tpl.headings.length} 个章节）`,
+            });
+          } catch (e) {
+            console.warn("[Skill] auto-create failed:", e);
           }
-          if (r.status === "error") {
-            // 终态：后端已经放弃，停止轮询并标记失败。
-            set(s => ({
-              reports: s.reports.map(rp =>
-                rp.id === id ? {
-                  ...rp, status: "error" as const, updatedAt: new Date().toISOString(),
-                } : rp
-              ),
-              stuckReportIds: s.stuckReportIds.filter(x => x !== id),
-            }));
-            get().toast("error", `「${report.subject}」报告生成失败，请删除后重试或调整主题。`);
-            return;
-          }
-          // status === 'generating': just bump progress
-          const prog = r.progress ?? 3;
+        }
+      },
+      onError: ({ message, server }) => {
+        // Two flavors of error: server-sent (terminal: report.status='error'
+        // was already written by the backend's error handler — flip our copy
+        // so the UI shows the right state) and network-level (transient:
+        // mark stuck and let manual refresh recover).
+        const stillGenerating = get().reports.some(r => r.id === id && r.status === "generating");
+        if (server && stillGenerating) {
+          tearDown();
           set(s => ({
             reports: s.reports.map(rp =>
-              rp.id === id ? { ...rp, progress: prog, stages: deriveStages(prog), updatedAt: new Date().toISOString() } : rp
+              rp.id === id ? { ...rp, status: "error" as const, updatedAt: new Date().toISOString() } : rp
             ),
+            stuckReportIds: s.stuckReportIds.filter(x => x !== id),
           }));
-        } catch {
-          // Network blip — keep polling.
+          get().toast("error", `「${report.subject}」报告生成失败：${message || '后端报错'}。请删除后重试。`);
+          return;
         }
-      }
+        // Transient: keep status as-is, surface a retry button.
+        tearDown();
+        if (!stillGenerating) return;
+        set(s => s.stuckReportIds.includes(id) ? s : { stuckReportIds: [...s.stuckReportIds, id] });
+        get().toast("error", `「${report.subject}」报告连接中断：${message || '网络问题'}。点击"手动刷新"重试。`);
+      },
+    });
 
-      // Timeout: flag the report so UI can offer a retry.
-      set(s => s.stuckReportIds.includes(id) ? s : { stuckReportIds: [...s.stuckReportIds, id] });
-      get().toast(
-        "info",
-        `「${report.subject}」报告生成较慢（已等待 ${LEARN_POLL_TIMEOUT_SECONDS} 秒）。点击"手动刷新"可继续检查进度。`
-      );
-    } finally {
-      pollingIds.delete(id);
-    }
+    // Register the stream immediately so concurrent refreshReport() calls
+    // for the same id short-circuit. armStaleTimer() below will replace
+    // the placeholder timer with a real one on first event.
+    streams.set(id, { close: () => controller?.close(), staleTimer: setTimeout(() => {}, 0) });
+    armStaleTimer();
   },
 
   toggleFavorite: id => {

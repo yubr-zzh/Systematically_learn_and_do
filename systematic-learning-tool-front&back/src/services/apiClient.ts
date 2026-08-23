@@ -42,6 +42,58 @@ export const api = {
     request<void>(`/api/learn/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReport: (id: string) => request<void>(`/api/learn/${id}`, { method: 'DELETE' }),
 
+  /**
+   * Open an SSE stream to /api/learn/:id/stream. Returns a controller
+   * with .close(). The caller is responsible for invoking close() on
+   * 'complete' / 'error' to prevent EventSource's built-in auto-reconnect
+   * from re-attaching to the now-terminal DB row.
+   *
+   * Handlers are typed as plain callbacks so callers can wire Zustand
+   * updates without importing any extra types.
+   *
+   * onError receives a `server` flag: true when the backend sent a
+   * terminal 'error' event (the report is permanently failed), false
+   * when the connection itself dropped mid-stream (transient — the
+   * stale timer / manual retry should own recovery).
+   */
+  openLearnStream: (
+    id: string,
+    handlers: {
+      onProgress?: (p: { progress: number }) => void;
+      onComplete?: (p: { content: string; wordCount: number }) => void;
+      onError?: (e: { message: string; server: boolean }) => void;
+    }
+  ): { close: () => void } => {
+    const url = `${BASE}/api/learn/${id}/stream`;
+    const es = new EventSource(url);
+
+    if (handlers.onProgress) es.addEventListener('progress', (ev) => {
+      try { handlers.onProgress!(JSON.parse((ev as MessageEvent).data)); } catch {}
+    });
+    if (handlers.onComplete) es.addEventListener('complete', (ev) => {
+      try { handlers.onComplete!(JSON.parse((ev as MessageEvent).data)); } catch {}
+    });
+    if (handlers.onError) {
+      // Server-authored error events come through as MessageEvent with
+      // .data; transient network errors come through as bare Event with
+      // no .data.
+      es.addEventListener('error', (ev) => {
+        const me = ev as MessageEvent;
+        if (me?.data) {
+          try {
+            handlers.onError!({ ...JSON.parse(me.data), server: true });
+            return;
+          } catch { /* fall through */ }
+        }
+        handlers.onError!({ message: 'Stream connection interrupted', server: false });
+      });
+    }
+
+    return {
+      close: () => es.close(),
+    };
+  },
+
   // ---- Projects ----
   getProjects: () => request<any[]>('/api/projects'),
   getProject: (id: string) => request<any>(`/api/projects/${id}`),

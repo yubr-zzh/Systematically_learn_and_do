@@ -14,6 +14,12 @@ import { runLearnAnalysis } from "./aiService.js";
 const EXPECTED_DURATION_MS = 30_000;
 // Emit a progress update at most this often (avoid flooding the client).
 const PROGRESS_TICK_MS = 1_500;
+// Heartbeat: keep the SSE channel alive while the AI call is still in
+// flight even after progress has plateaued at 85%. Clients reset their
+// stale-detection timer on every 'progress' event, so without this any
+// generation longer than EXPECTED_DURATION_MS + small fudge would trip
+// the client-side "stuck" badge even though the server is healthy.
+const HEARTBEAT_TICK_MS = 5_000;
 
 function interpolateProgress(startTs) {
   const elapsed = Date.now() - startTs;
@@ -31,9 +37,17 @@ export function streamLearnAnalysis(subject, category, options = {}) {
     emitter.emit("progress", { progress: interpolateProgress(startTs) });
   }, PROGRESS_TICK_MS);
 
+  // Once we've plateaued at 85%, the AI call may still take much longer
+  // (real-world DeepSeek responses: 60–120s). Heartbeat so the SSE
+  // client knows the stream is still alive.
+  const heartbeat = setInterval(() => {
+    emitter.emit("progress", { progress: interpolateProgress(startTs) });
+  }, HEARTBEAT_TICK_MS);
+
   runLearnAnalysis(subject, category, options)
     .then((result) => {
       clearInterval(tick);
+      clearInterval(heartbeat);
       emitter.emit("progress", { progress: 100 });
       emitter.emit("complete", {
         content: result.content,
@@ -42,6 +56,7 @@ export function streamLearnAnalysis(subject, category, options = {}) {
     })
     .catch((err) => {
       clearInterval(tick);
+      clearInterval(heartbeat);
       emitter.emit("error", { message: err?.message || String(err) });
     })
     .finally(() => {

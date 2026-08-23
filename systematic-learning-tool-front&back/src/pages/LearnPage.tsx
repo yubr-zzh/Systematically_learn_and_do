@@ -181,7 +181,7 @@ export function LearnPage() {
                   <StageProgress stages={r.stages} overall={r.progress} />
                   {stuck && (
                     <p className="mt-2 text-xs text-amberx">
-                      已超过自动轮询时长。可点击「手动刷新」继续检查；若后端已失败，状态会自动转为「生成失败」。
+                      进度推送超时（10 秒未收到事件）。可点击「手动刷新」重连；若后端已失败，状态会自动转为「生成失败」。
                     </p>
                   )}
                 </div>

@@ -134,7 +134,7 @@ export function LearnDetailPage({ id }: { id: string }) {
             </div>
             {stuckReportIds.includes(report.id) && (
               <p className="text-xs text-amberx">
-                已超过自动轮询时长。可点击「手动刷新」继续检查进度。
+                进度推送超时（10 秒未收到事件）。可点击「手动刷新」重连。
               </p>
             )}
             <DetailSkeletonLines />

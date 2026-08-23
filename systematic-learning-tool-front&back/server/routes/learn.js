@@ -278,13 +278,14 @@ router.get('/:id/stream', (req, res) => {
     return res.end();
   }
 
-  // Watch the DB row. Emit progress when the stored value changes,
-  // terminal events when status flips.
-  let lastProgress = report.progress ?? 0;
+  // Watch the DB row. Forward 'progress' on every poll — the backend
+  // emits heartbeats after the 30s interpolation plateau so the client's
+  // stale-detection timer never trips on healthy in-flight generations.
+  // (1 event / second is well under any reasonable SSE budget.)
   const stmt = db.prepare('SELECT status, progress, content, word_count FROM learn_reports WHERE id = ?');
 
   // Ship an immediate progress so the UI knows we're streaming.
-  sendEvent('progress', { progress: lastProgress });
+  sendEvent('progress', { progress: report.progress ?? 0 });
 
   const interval = setInterval(() => {
     if (res.writableEnded) {
@@ -307,10 +308,9 @@ router.get('/:id/stream', (req, res) => {
       clearInterval(interval);
       return res.end();
     }
-    if ((row.progress ?? 0) !== lastProgress) {
-      lastProgress = row.progress ?? 0;
-      sendEvent('progress', { progress: lastProgress });
-    }
+    // Always forward progress (incl. heartbeats at the same numeric value)
+    // so the client stale timer keeps resetting.
+    sendEvent('progress', { progress: row.progress ?? 0 });
   }, 1000);
 
   req.on('close', () => {
