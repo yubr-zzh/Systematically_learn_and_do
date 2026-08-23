@@ -21,6 +21,7 @@ import type {
   UserSettings,
 } from "../types";
 import { STAGE_NAMES } from "../types";
+import { extractSkillTemplate } from "../utils/skillTemplate";
 import { api } from "../services/apiClient";
 
 export const uid = () => `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -310,21 +311,21 @@ export const useStore = create<AppState>((set, get) => ({
             // 报告状态给覆盖掉）
             if ((r.content || "").length > 500) {
               try {
-                const template = extractTemplate(r.content);
+                const tpl = extractSkillTemplate(r.content, report.subject);
                 await get().addSkill({
-                  name: `${report.subject} 研究模板`,
-                  description: `基于「${report.subject}」研究经验自动生成`,
-                  content: template,
+                  name: tpl.title,
+                  description: tpl.description,
+                  content: tpl.markdown,
                   category: report.category,
                   status: "active",
                   author: "AI自动生成",
-                  tags: [report.subject.toLowerCase().split(" ")[0]],
+                  tags: tpl.tags,
                 });
                 get().addEvolutionLog({
                   type: "skill_created",
                   subject: report.subject,
-                  skillName: `${report.subject} 研究模板`,
-                  description: `基于「${report.subject}」报告自动生成学习模板`,
+                  skillName: tpl.title,
+                  description: `基于「${report.subject}」报告自动提炼模板（${tpl.headings.length} 个章节）`,
                 });
               } catch (e) {
                 console.warn("[Skill] auto-create failed:", e);
@@ -636,19 +637,3 @@ export const useStore = create<AppState>((set, get) => ({
     get().toast("success", "数据已同步 ✓");
   },
 }));
-
-/** 从报告内容提取可复用的模板骨架 */
-function extractTemplate(content: string): string {
-  const lines = content.split('\n');
-  const headings = lines.filter(l => l.startsWith('#')).map(l => l.trim());
-  return `# ${headings[0]?.replace('#', '').trim() || '主题'} 研究模板
-
-> 本模板由「Systematically Learn and Do」自动生成
-
-## 一、横向分析：领域边界与知识版图
-## 二、纵向分析：历史沿革与发展趋势
-## 三、深度调研：核心概念与方法论
-## 四、规划建议：系统学习路线图
-## 五、总结
-`;
-}
