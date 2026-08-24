@@ -22,7 +22,7 @@ import skillRoutes from './routes/skills.js';
 import settingsRoutes from './routes/settings.js';
 import researchRoutes from './routes/research.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import { requestLogger } from './middleware/logger.js';
+import { requestId, requestLogger } from './middleware/logger.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,14 +46,17 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
 
+// Per-request id + structured access log.
+// Note: must come BEFORE the rate limiter so 429-rejected requests
+// still get a request id and an access-log entry.
+app.use(requestId);
+app.use(requestLogger);
+
 // Rate limit (per IP, sliding window). Skip /api/health for monitors.
 app.use(createRateLimiter({
   max: config.rateLimitMax,
   windowMs: config.rateLimitWindowMs,
 }));
-
-// Request logging
-app.use(requestLogger);
 
 // API Routes
 app.use('/api/learn', learnRoutes);
@@ -89,7 +92,10 @@ app.get('/api/health', (req, res) => {
 if (config.nodeEnv === 'production') {
   app.use(express.static(path.join(__dirname, '../dist')));
 
-  app.get('*', (req, res) => {
+  // path-to-regexp v8 requires a named wildcard; '/*splat' gives us
+  // a catch-all that routes unmatched paths back to index.html so
+  // the SPA can take over client-side routing.
+  app.get('/*splat', (req, res) => {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
