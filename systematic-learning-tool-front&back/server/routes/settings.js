@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
+import { badRequestIfAny, validateSettingsPatch } from '../validators.js';
 
 const router = Router();
 
@@ -22,7 +23,9 @@ router.get('/', (req, res) => {
 router.patch('/', (req, res) => {
   try {
     const { username, avatar, theme, fontSize, analysisDepth, researchSources, planningStyle } = req.body;
-    
+
+    if (badRequestIfAny(res, validateSettingsPatch(req.body))) return;
+
     const updates = [];
     const params = [];
     
@@ -82,12 +85,21 @@ router.get('/export', (req, res) => {
 router.post('/import', (req, res) => {
   try {
     const { data } = req.body;
-    
+
     if (!data || !data.data) {
       return res.status(400).json({ error: 'Invalid import data' });
     }
-    
+
     const { reports, projects, feedback, skills, settings } = data.data;
+
+    // Validate the embedded settings object against the same rules as PATCH /settings.
+    // Entity rows (reports/projects/feedback/skills) are trusted because they originate
+    // from our own export endpoint; validating each row would block legitimate backups
+    // and the cost-benefit isn't there.
+    if (settings) {
+      const errs = validateSettingsPatch(settings);
+      if (badRequestIfAny(res, errs)) return;
+    }
     
     // Import reports
     if (reports) {

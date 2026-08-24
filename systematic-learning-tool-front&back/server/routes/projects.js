@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { runProjectResearch } from '../services/aiService.js';
+import { badRequestIfAny, validateProjectCreate, validateProjectPatch, validateTaskAdd } from '../validators.js';
 
 const router = Router();
 
@@ -72,10 +73,8 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const { name, description, type, dueDate, startDate, refLink } = req.body;
-    
-    if (!name || !description || !type) {
-      return res.status(400).json({ error: 'name, description, and type are required' });
-    }
+
+    if (badRequestIfAny(res, validateProjectCreate(req.body))) return;
 
     const id = `proj-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
@@ -136,7 +135,9 @@ router.patch('/:id', (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, type, status, progress, content, dueDate, startDate, refLink, cover } = req.body;
-    
+
+    if (badRequestIfAny(res, validateProjectPatch(req.body))) return;
+
     const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
@@ -193,11 +194,9 @@ router.post('/:id/tasks', (req, res) => {
   try {
     const { id } = req.params;
     const { title, phase, dueDate } = req.body;
-    
-    if (!title || !phase) {
-      return res.status(400).json({ error: 'title and phase are required' });
-    }
-    
+
+    if (badRequestIfAny(res, validateTaskAdd(req.body))) return;
+
     const taskId = `task-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     
     db.prepare(`

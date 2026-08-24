@@ -21,7 +21,14 @@ async function request<T>(path: string, options?: RequestInit & { params?: Recor
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || `HTTP ${res.status}`);
+    // Surface the backend's validator details (Step 3.2) when present so
+    // the user sees e.g. "rating 必须在 1-5 之间" instead of the generic
+    // "Validation failed".
+    const detail = Array.isArray(err?.details) && err.details.length
+      ? err.details.join("; ")
+      : null;
+    const message = detail ? `${err.error || "Request failed"}: ${detail}` : (err.error || `HTTP ${res.status}`);
+    throw new Error(message);
   }
   return res.json();
 }

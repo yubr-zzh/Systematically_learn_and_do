@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { streamLearnAnalysis } from '../services/learnStream.js';
+import { badRequestIfAny, validateLearnCreate, validateLearnReportPatch } from '../validators.js';
 
 const router = Router();
 
@@ -77,10 +78,8 @@ router.get('/:id', (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { subject, category, depth = 'standard' } = req.body;
-    
-    if (!subject || !category) {
-      return res.status(400).json({ error: 'subject and category are required' });
-    }
+
+    if (badRequestIfAny(res, validateLearnCreate(req.body))) return;
 
     const id = `learn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
@@ -164,6 +163,8 @@ router.patch('/:id', (req, res) => {
   try {
     const { id } = req.params;
     const { favorite, title, content, status } = req.body;
+
+    if (badRequestIfAny(res, validateLearnReportPatch(req.body))) return;
 
     const report = db.prepare('SELECT * FROM learn_reports WHERE id = ?').get(id);
     if (!report) {

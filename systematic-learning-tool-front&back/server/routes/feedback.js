@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
+import { badRequestIfAny, validateFeedbackCreate } from '../validators.js';
 
 const router = Router();
 
@@ -35,10 +36,8 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const { reportId, reportTitle, rating, strengths, improvements, comment } = req.body;
-    
-    if (!reportTitle || rating === undefined) {
-      return res.status(400).json({ error: 'reportTitle and rating are required' });
-    }
+
+    if (badRequestIfAny(res, validateFeedbackCreate(req.body))) return;
 
     const id = `fb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     

@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
+import { badRequestIfAny, validateSkillCreate, validateSkillPatch } from '../validators.js';
 
 const router = Router();
 
@@ -68,10 +69,8 @@ router.get('/:id', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const { name, description, content, category, tags = [] } = req.body;
-    
-    if (!name || !description || !content) {
-      return res.status(400).json({ error: 'name, description, and content are required' });
-    }
+
+    if (badRequestIfAny(res, validateSkillCreate(req.body))) return;
 
     const id = `skill-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     
@@ -98,7 +97,9 @@ router.patch('/:id', (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, content, category, status, rating, tags } = req.body;
-    
+
+    if (badRequestIfAny(res, validateSkillPatch(req.body))) return;
+
     const skill = db.prepare('SELECT * FROM skills WHERE id = ?').get(id);
     if (!skill) {
       return res.status(404).json({ error: 'Skill not found' });
