@@ -8,6 +8,7 @@ import { useStore } from "./store/useStore";
 import type { Page, RouterState } from "./types";
 import { Header } from "./components/Header";
 import { Toasts } from "./components/ui";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { NAV_ITEMS } from "./components/navItems";
 import { LearnPage } from "./pages/LearnPage";
 import { LearnDetailPage } from "./pages/LearnDetailPage";
@@ -99,20 +100,35 @@ export default function App() {
 
   const renderPage = () => {
     const { page, reportId, projectId } = router;
+    // Wrap each route in an ErrorBoundary so a broken page doesn't
+    // blank the whole app — the user can keep navigating.
+    let inner: React.ReactNode;
+    let scope = "页面";
     switch (page) {
       case "learn":
-        return reportId ? <LearnDetailPage id={reportId} /> : <LearnPage />;
+        scope = "学习报告";
+        inner = reportId ? <LearnDetailPage id={reportId} /> : <LearnPage />;
+        break;
       case "projects":
-        return projectId ? <ProjectDetailPage id={projectId} /> : <ProjectPage />;
+        scope = "项目";
+        inner = projectId ? <ProjectDetailPage id={projectId} /> : <ProjectPage />;
+        break;
       case "skills":
-        return <SkillPage />;
+        scope = "Skill";
+        inner = <SkillPage />;
+        break;
       case "feedback":
-        return <FeedbackPage />;
+        scope = "反馈";
+        inner = <FeedbackPage />;
+        break;
       case "settings":
-        return <SettingsPage />;
+        scope = "设置";
+        inner = <SettingsPage />;
+        break;
       default:
-        return <LearnPage />;
+        inner = <LearnPage />;
     }
+    return <ErrorBoundary scope={scope}>{inner}</ErrorBoundary>;
   };
 
   return (
