@@ -1,0 +1,43 @@
+# Build output
+dist/
+build/
+
+# Node modules
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env files (keep API key out of repo)
+.env
+.env.local
+.env.*.local
+
+# Runtime data
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+data/test-*.db
+data/system-test.db
+data/system-rl.db
+
+# Coverage
+coverage/
+
+# Editor temp
+*.tmp
