@@ -6,6 +6,7 @@ import type { StateCreator } from "zustand";
 import type { Project } from "../types";
 import { api } from "../services/apiClient";
 import { calcTaskProgress, deriveStages } from "./mappers";
+import { withOptimistic } from "./optimistic";
 import type { AppState } from "./types";
 
 export interface ProjectSlice {
@@ -45,32 +46,69 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
   archiveProject: async id => {
     const project = get().projects.find(p => p.id === id);
     if (!project) return;
-    const nextStatus = project.status === "archived" ? "in_progress" : "archived";
-    try {
-      await api.updateProject(id, { status: nextStatus });
-      set(s => ({
+    const previousStatus = project.status;
+    const nextStatus = previousStatus === "archived" ? "in_progress" : "archived";
+    await withOptimistic({
+      set, get,
+      apply: () => set(s => ({
         projects: s.projects.map(p =>
           p.id === id ? { ...p, status: nextStatus as Project["status"] } : p
         ),
-      }));
-    } catch (e) {
-      get().toast("error", `归档失败：${(e as Error).message}`);
-    }
+      })),
+      apiCall: () => api.updateProject(id, { status: nextStatus }),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          projects: s.projects.map(p =>
+            p.id === id ? { ...p, status: previousStatus } : p
+          ),
+        }));
+      },
+      errorMessage: "归档失败",
+    });
   },
 
   deleteProject: async id => {
-    await api.deleteProject(id);
-    set(s => ({ projects: s.projects.filter(p => p.id !== id) }));
-    get().toast("info", "项目已删除");
+    const previous = get().projects;
+    const result = await withOptimistic({
+      set, get,
+      apply: () => set(s => ({ projects: s.projects.filter(p => p.id !== id) })),
+      apiCall: () => api.deleteProject(id),
+      rollback: restoreSet => { restoreSet({ projects: previous }); },
+      errorMessage: "删除失败",
+    });
+    if (result !== null) get().toast("info", "项目已删除");
   },
 
   addTask: async (projectId, title, phase, dueDate?) => {
-    const res = await api.addTask(projectId, title, phase, dueDate);
+    const previous = get().projects.find(p => p.id === projectId);
+    if (!previous) return;
+    const tmpId = `tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const optimisticTasks = [...previous.tasks, { id: tmpId, title, phase, done: false, dueDate }];
+    const result = await withOptimistic<{ id: string }>({
+      set, get,
+      apply: () => set(s => ({
+        projects: s.projects.map(p => {
+          if (p.id !== projectId) return p;
+          return { ...p, tasks: optimisticTasks, progress: calcTaskProgress(optimisticTasks, p.status) };
+        }),
+      })),
+      apiCall: () => api.addTask(projectId, title, phase, dueDate),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          projects: s.projects.map(p =>
+            p.id === projectId ? { ...p, tasks: previous.tasks, progress: calcTaskProgress(previous.tasks, p.status) } : p
+          ),
+        }));
+      },
+      errorMessage: "添加任务失败",
+    });
+    if (!result) return;
+    // Swap the tmp id for the real server id so subsequent ops target the right record.
     set(s => ({
       projects: s.projects.map(p => {
         if (p.id !== projectId) return p;
-        const tasks = [...p.tasks, { id: res.id, title, phase, done: false, dueDate }];
-        return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
+        const tasks = p.tasks.map(t => t.id === tmpId ? { ...t, id: result.id } : t);
+        return { ...p, tasks };
       }),
     }));
   },
@@ -78,37 +116,76 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
   toggleTask: (projectId, taskId) => {
     const project = get().projects.find(p => p.id === projectId);
     const task = project?.tasks.find(t => t.id === taskId);
-    if (task) api.toggleTask(projectId, taskId, !task.done);
-    set(s => ({
-      projects: s.projects.map(p => {
-        if (p.id !== projectId) return p;
-        const tasks = p.tasks.map(t => t.id === taskId ? { ...t, done: !t.done } : t);
-        return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
-      }),
-    }));
+    if (!task) return;
+    const previousDone = task.done;
+    void withOptimistic({
+      set, get,
+      apply: () => set(s => ({
+        projects: s.projects.map(p => {
+          if (p.id !== projectId) return p;
+          const tasks = p.tasks.map(t => t.id === taskId ? { ...t, done: !previousDone } : t);
+          return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
+        }),
+      })),
+      apiCall: () => api.toggleTask(projectId, taskId, !previousDone),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          projects: s.projects.map(p => {
+            if (p.id !== projectId) return p;
+            const tasks = p.tasks.map(t => t.id === taskId ? { ...t, done: previousDone } : t);
+            return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
+          }),
+        }));
+      },
+      errorMessage: "任务状态切换失败",
+    });
   },
 
   deleteTask: async (projectId, taskId) => {
-    await api.deleteTask(projectId, taskId);
-    set(s => ({
-      projects: s.projects.map(p => {
-        if (p.id !== projectId) return p;
-        const tasks = p.tasks.filter(t => t.id !== taskId);
-        return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
-      }),
-    }));
+    const previousTasks = get().projects.find(p => p.id === projectId)?.tasks;
+    if (!previousTasks) return;
+    await withOptimistic({
+      set, get,
+      apply: () => set(s => ({
+        projects: s.projects.map(p => {
+          if (p.id !== projectId) return p;
+          const tasks = p.tasks.filter(t => t.id !== taskId);
+          return { ...p, tasks, progress: calcTaskProgress(tasks, p.status) };
+        }),
+      })),
+      apiCall: () => api.deleteTask(projectId, taskId),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          projects: s.projects.map(p =>
+            p.id === projectId ? { ...p, tasks: previousTasks, progress: calcTaskProgress(previousTasks, p.status) } : p
+          ),
+        }));
+      },
+      errorMessage: "删除任务失败",
+    });
   },
 
   markProjectDone: async id => {
-    try {
-      await api.updateProject(id, { status: "completed", progress: 100 });
-      set(s => ({
+    const project = get().projects.find(p => p.id === id);
+    if (!project) return;
+    const previousStatus = project.status;
+    const previousProgress = project.progress;
+    await withOptimistic({
+      set, get,
+      apply: () => set(s => ({
         projects: s.projects.map(p =>
           p.id === id ? { ...p, status: "completed" as Project["status"], progress: 100 } : p
         ),
-      }));
-    } catch (e) {
-      get().toast("error", `更新失败：${(e as Error).message}`);
-    }
+      })),
+      apiCall: () => api.updateProject(id, { status: "completed", progress: 100 }),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          projects: s.projects.map(p =>
+            p.id === id ? { ...p, status: previousStatus, progress: previousProgress } : p
+          ),
+        }));
+      },
+      errorMessage: "标记完成失败",
+    });
   },
 });

@@ -8,6 +8,7 @@ import type { LearnReport } from "../types";
 import { api } from "../services/apiClient";
 import { extractSkillTemplate } from "../utils/skillTemplate";
 import { countWords, deriveStages } from "./mappers";
+import { withOptimistic } from "./optimistic";
 import type { AppState } from "./types";
 
 // If no SSE event arrives within this window, we assume the stream died
@@ -153,8 +154,21 @@ export const createReportSlice: StateCreator<AppState, [], [], ReportSlice> = (s
 
   toggleFavorite: id => {
     const report = get().reports.find(r => r.id === id);
-    if (report) api.updateReport(id, { favorite: !report.favorite });
-    set(s => ({ reports: s.reports.map(r => r.id === id ? { ...r, favorite: !r.favorite } : r) }));
+    if (!report) return;
+    const previousFavorite = report.favorite;
+    void withOptimistic({
+      set, get,
+      apply: () => set(s => ({
+        reports: s.reports.map(r => r.id === id ? { ...r, favorite: !previousFavorite } : r),
+      })),
+      apiCall: () => api.updateReport(id, { favorite: !previousFavorite }),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          reports: s.reports.map(r => r.id === id ? { ...r, favorite: previousFavorite } : r),
+        }));
+      },
+      errorMessage: "收藏切换失败",
+    });
   },
 
   archiveReport: async id => {
@@ -163,21 +177,35 @@ export const createReportSlice: StateCreator<AppState, [], [], ReportSlice> = (s
     const nextStatus = report.status === "archived"
       ? report.wordCount > 0 ? "completed" : "error"
       : "archived";
-    try {
-      await api.updateReport(id, { status: nextStatus });
-      set(s => ({
+    const previousStatus = report.status;
+    await withOptimistic({
+      set, get,
+      apply: () => set(s => ({
         reports: s.reports.map(r =>
           r.id === id ? { ...r, status: nextStatus, updatedAt: new Date().toISOString() } : r
         ),
-      }));
-    } catch (e) {
-      get().toast("error", `归档失败：${(e as Error).message}`);
-    }
+      })),
+      apiCall: () => api.updateReport(id, { status: nextStatus }),
+      rollback: restoreSet => {
+        restoreSet(s => ({
+          reports: s.reports.map(r =>
+            r.id === id ? { ...r, status: previousStatus, updatedAt: report.updatedAt } : r
+          ),
+        }));
+      },
+      errorMessage: "归档失败",
+    });
   },
 
   deleteReport: async id => {
-    await api.deleteReport(id);
-    set(s => ({ reports: s.reports.filter(r => r.id !== id) }));
-    get().toast("info", "报告已删除");
+    const previous = get().reports;
+    const result = await withOptimistic({
+      set, get,
+      apply: () => set(s => ({ reports: s.reports.filter(r => r.id !== id) })),
+      apiCall: () => api.deleteReport(id),
+      rollback: restoreSet => { restoreSet({ reports: previous }); },
+      errorMessage: "删除失败",
+    });
+    if (result !== null) get().toast("info", "报告已删除");
   },
 });

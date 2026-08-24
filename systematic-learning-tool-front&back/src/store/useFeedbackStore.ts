@@ -5,6 +5,7 @@
 import type { StateCreator } from "zustand";
 import type { FeedbackItem, SkillStatus } from "../types";
 import { api } from "../services/apiClient";
+import { withOptimistic } from "./optimistic";
 import type { AppState } from "./types";
 
 export interface FeedbackSlice {
@@ -29,8 +30,14 @@ export const createFeedbackSlice: StateCreator<AppState, [], [], FeedbackSlice> 
   },
 
   deleteFeedback: async id => {
-    await api.deleteFeedback(id);
-    set(s => ({ feedbacks: s.feedbacks.filter(f => f.id !== id) }));
+    const previous = get().feedbacks;
+    await withOptimistic({
+      set, get,
+      apply: () => set(s => ({ feedbacks: s.feedbacks.filter(f => f.id !== id) })),
+      apiCall: () => api.deleteFeedback(id),
+      rollback: restoreSet => { restoreSet({ feedbacks: previous }); },
+      errorMessage: "删除反馈失败",
+    });
   },
 
   processFeedbackAndEvolve: async (reportId, reportTitle, rating, improvements) => {

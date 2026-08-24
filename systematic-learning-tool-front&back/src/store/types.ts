@@ -53,8 +53,8 @@ export type AppState = UISlice & {
   evolutionLogs: EvolutionLog[];
   addSkill: (skill: Omit<Skill, "id" | "createdAt" | "updatedAt" | "usageCount" | "rating" | "version">) => Promise<void>;
   updateSkill: (id: string, patch: Partial<Skill>) => Promise<void>;
-  archiveSkill: (id: string) => void;
-  pinSkill: (id: string) => void;
+  archiveSkill: (id: string) => Promise<void>;
+  pinSkill: (id: string) => Promise<void>;
   deleteSkill: (id: string) => Promise<void>;
   incrementSkillUsage: (id: string) => Promise<void>;
   addEvolutionLog: (log: Omit<EvolutionLog, "id" | "timestamp">) => void;
