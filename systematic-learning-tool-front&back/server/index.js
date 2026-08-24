@@ -14,6 +14,7 @@ import { config, validateConfig } from './config.js';
 import { initDatabase } from './db/database.js';
 import { seedSkills } from './db/seed.js';
 import { startCuratorLoop } from './services/curator.js';
+import { createRateLimiter } from './middleware/rateLimit.js';
 import learnRoutes from './routes/learn.js';
 import projectRoutes from './routes/projects.js';
 import feedbackRoutes from './routes/feedback.js';
@@ -30,9 +31,26 @@ const app = express();
 const PORT = config.port;
 
 // Middleware
-app.use(cors());
+// CORS: in production enforce a whitelist from ALLOWED_ORIGINS; in
+// development allow any origin so the Vite dev server on a different
+// port can hit us.
+const corsOptions = config.allowedOrigins.length
+  ? { origin: (origin, cb) => {
+      // Allow same-origin / curl / server-to-server (no Origin header)
+      if (!origin) return cb(null, true);
+      if (config.allowedOrigins.includes(origin)) return cb(null, true);
+      return cb(new Error(`CORS: ${origin} 不在白名单中`));
+    }}
+  : {}; // empty options = allow all (dev fallback)
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+// Rate limit (per IP, sliding window). Skip /api/health for monitors.
+app.use(createRateLimiter({
+  max: config.rateLimitMax,
+  windowMs: config.rateLimitWindowMs,
+}));
 
 // Request logging
 app.use(requestLogger);
@@ -58,6 +76,15 @@ if (config.nodeEnv === 'production') {
     res.sendFile(path.join(__dirname, '../dist/index.html'));
   });
 }
+
+// CORS errors come through as plain Error("CORS: ..."); translate
+// them into a 403 instead of letting the generic handler return 500.
+app.use((err, req, res, next) => {
+  if (err && typeof err.message === "string" && err.message.startsWith("CORS: ")) {
+    return res.status(403).json({ error: "Forbidden", message: err.message });
+  }
+  next(err);
+});
 
 // Error handling
 app.use(errorHandler);

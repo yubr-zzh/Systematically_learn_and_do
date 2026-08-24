@@ -41,6 +41,15 @@ function isPlaceholder(value) {
   return false;
 }
 
+/** Parse an env var as a number, treating unset / blank / non-numeric as the default.
+ * Explicit "0" is preserved (used by RATE_LIMIT_MAX=0 to disable the limiter). */
+function parseNumericEnv(name, fallback) {
+  const raw = process.env[name];
+  if (raw === undefined || String(raw).trim() === "") return fallback;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export const config = {
   port: Number(process.env.PORT) || 3001,
   nodeEnv: process.env.NODE_ENV || "development",
@@ -48,6 +57,14 @@ export const config = {
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.API_KEY || "",
   apiBaseUrl: process.env.API_BASE_URL || "https://api.deepseek.com/v1",
   aiModel: process.env.AI_MODEL || "deepseek-chat",
+  /** Comma-separated list of allowed CORS origins. Empty = allow all (dev only). */
+  allowedOrigins: (process.env.ALLOWED_ORIGINS || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean),
+  /** Max requests per IP within rateLimitWindowMs. 0 = disabled. */
+  rateLimitMax: parseNumericEnv("RATE_LIMIT_MAX", 200),
+  rateLimitWindowMs: parseNumericEnv("RATE_LIMIT_WINDOW_MS", 60_000),
 };
 
 /**
