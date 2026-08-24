@@ -40,10 +40,10 @@ export const api = {
   getReports: (params?: Record<string, string>) =>
     request<any[]>('/api/learn', { params }),
   getReport: (id: string) => request<any>(`/api/learn/${id}`),
-  createReport: (subject: string, category: string, depth = 'standard') =>
+  createReport: (subject: string, category: string, depth = 'standard', skillId?: string) =>
     request<SimpleResponse>('/api/learn', {
       method: 'POST',
-      body: JSON.stringify({ subject, category, depth }),
+      body: JSON.stringify({ subject, category, depth, ...(skillId ? { skillId } : {}) }),
     }),
   updateReport: (id: string, patch: Partial<{ favorite: boolean; content: string; status: string; title: string }>) =>
     request<void>(`/api/learn/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),

@@ -31,8 +31,8 @@ export interface ReportSlice {
 export const createReportSlice: StateCreator<AppState, [], [], ReportSlice> = (set, get, _store) => ({
   reports: [],
 
-  startLearn: async (subject, category, depth = "standard") => {
-    const res = await api.createReport(subject, category, depth);
+  startLearn: async (subject, category, depth = "standard", skillId) => {
+    const res = await api.createReport(subject, category, depth, skillId);
     const id = res.id;
     const now = new Date().toISOString();
     const report: LearnReport = {

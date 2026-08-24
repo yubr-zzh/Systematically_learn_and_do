@@ -77,9 +77,18 @@ router.get('/:id', (req, res) => {
 // Create new learn report and start research
 router.post('/', async (req, res) => {
   try {
-    const { subject, category, depth = 'standard' } = req.body;
+    const { subject, category, depth = 'standard', skillId } = req.body;
 
     if (badRequestIfAny(res, validateLearnCreate(req.body))) return;
+
+    // If a Skill template is provided, load its content to use as the
+    // AI system prompt. Replace {subject} / {category} placeholders.
+    let template = null;
+    if (skillId) {
+      const skill = db.prepare('SELECT content FROM skills WHERE id = ?').get(skillId);
+      if (!skill) return res.status(404).json({ error: 'Skill not found' });
+      template = skill.content;
+    }
 
     const id = `learn-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
@@ -114,7 +123,7 @@ router.post('/', async (req, res) => {
     // 启动异步横纵分析（学习流程）。通过 streamLearnAnalysis 拿到
     // progress / complete / error 事件，并把进度实时写库，这样 SSE 客户端
     // 可以在中途连接进来也能同步看到进度。
-    const emitter = streamLearnAnalysis(subject, category, { depth });
+    const emitter = streamLearnAnalysis(subject, category, { depth, template });
     emitter
       .on('progress', ({ progress }) => {
         db.prepare(`

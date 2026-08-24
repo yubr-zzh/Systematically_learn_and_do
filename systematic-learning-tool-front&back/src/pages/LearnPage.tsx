@@ -2,8 +2,8 @@
 // Learn 页面：主题输入 → 三阶段生成 → 历史学习列表
 // ============================================================
 
-import { useMemo, useState } from "react";
-import { ArrowRight, Archive, ArchiveRestore, BookOpen, CalendarDays, FileText, Loader2, RefreshCw, Search, Sparkles, Star, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRight, Archive, ArchiveRestore, BookOpen, CalendarDays, FileText, Loader2, RefreshCw, Search, Sparkles, Star, Trash2, X } from "lucide-react";
 import { cn } from "../utils/cn";
 import { useStore } from "../store/useStore";
 import type { CategoryId, LearnReport } from "../types";
@@ -24,7 +24,7 @@ const QUICK_TAGS: { label: string; category: CategoryId }[] = [
 type Filter = "all" | "completed" | "archived" | "favorite";
 
 export function LearnPage() {
-  const { reports, startLearn, refreshReport, toggleFavorite, deleteReport, archiveReport, stuckReportIds } = useStore();
+  const { reports, skills, startLearn, refreshReport, toggleFavorite, deleteReport, archiveReport, stuckReportIds } = useStore();
   const [subject, setSubject] = useState("");
   const [category, setCategory] = useState<CategoryId>("ai");
   const [search, setSearch] = useState("");
@@ -32,6 +32,31 @@ export function LearnPage() {
   const [sort, setSort] = useState<"newest" | "oldest" | "words">("newest");
   const [pendingDelete, setPendingDelete] = useState<LearnReport | null>(null);
   const [inputError, setInputError] = useState("");
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+
+  // When arriving via SkillPage's '使用模板' button, the URL has
+  // #/learn?skill=<id>. Parse that, pre-fill subject, and remember
+  // the skillId so startLearn can pass it through to the backend.
+  useEffect(() => {
+    const hash = window.location.hash;
+    const qIdx = hash.indexOf("?");
+    if (qIdx === -1) return;
+    const params = new URLSearchParams(hash.slice(qIdx + 1));
+    const sid = params.get("skill");
+    if (!sid) return;
+    const skill = skills.find(s => s.id === sid);
+    if (!skill) return;
+    setSelectedSkillId(sid);
+    setSubject(skill.name);
+    setCategory(skill.category);
+  }, [skills]);
+
+  const clearSkill = () => {
+    setSelectedSkillId(null);
+    // Drop the ?skill=... from the URL too so a reload doesn't re-apply it.
+    const cleanHash = window.location.hash.split("?")[0] || "#/learn";
+    window.history.replaceState(null, "", cleanHash);
+  };
 
   const generating = reports.filter((r) => r.status === "generating");
 
@@ -64,8 +89,10 @@ export function LearnPage() {
       return;
     }
     setInputError("");
-    const id = await startLearn(v, category);
+    const id = await startLearn(v, category, undefined, selectedSkillId ?? undefined);
     setSubject("");
+    setSelectedSkillId(null);
+    clearSkill();
     navigateTo("learn", id);
   };
 
@@ -83,6 +110,26 @@ export function LearnPage() {
 
       {/* 输入卡片 */}
       <section className="card overflow-hidden" aria-label="创建学习主题">
+        {selectedSkillId && (() => {
+          const skill = skills.find(s => s.id === selectedSkillId);
+          if (!skill) return null;
+          return (
+            <div className="flex items-center justify-between gap-2 border-b border-forest-200/60 bg-forest-50/70 dark:border-night-600 dark:bg-night-700/40 px-6 sm:px-8 py-2.5 text-sm">
+              <span className="flex items-center gap-2 text-forest-700 dark:text-forest-200">
+                <Sparkles size={14} />
+                正在使用模板「<b>{skill.name}</b>」— <code className="text-xs">{`{subject}`}</code> 会被替换为你填的主题。
+              </span>
+              <button
+                onClick={clearSkill}
+                className="rounded p-1 text-ink-600 dark:text-forest-300/70 hover:bg-ink-200/60 dark:hover:bg-night-600 cursor-pointer"
+                aria-label="取消使用模板"
+                title="取消"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          );
+        })()}
         <div className="h-1.5 bg-gradient-to-r from-forest-600 via-forest-400 to-forest-300" />
         <div className="p-6 sm:p-8">
           <div className="flex flex-col gap-3 sm:flex-row">

@@ -23,7 +23,7 @@ import type { UISlice } from "./useUIStore";
 export type AppState = UISlice & {
   // Reports
   reports: LearnReport[];
-  startLearn: (subject: string, category: CategoryId, depth?: string) => Promise<string>;
+  startLearn: (subject: string, category: CategoryId, depth?: string, skillId?: string) => Promise<string>;
   refreshReport: (id: string) => Promise<void>;
   toggleFavorite: (id: string) => void;
   archiveReport: (id: string) => Promise<void>;

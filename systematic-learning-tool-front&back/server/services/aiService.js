@@ -54,14 +54,22 @@ async function callAI(messages, options = {}) {
  * Uses horizontal-vertical-analysis skill
  */
 export async function stage1HorizontalVerticalAnalysis(subject, category, options = {}) {
-  const { depth = 'standard' } = options;
-  
-  const systemPrompt = `你是一位资深的技术与商业研究分析师，擅长使用「横纵分析法」进行深度研究。请用中文输出结构化的研究报告。
+  const { depth = 'standard', template } = options;
+
+  // If a Skill template is provided, replace {subject} / {category}
+  // placeholders and use it as the system prompt. This is how
+  // pre-existing Skill knowledge is reused for new research.
+  let systemPrompt = `你是一位资深的技术与商业研究分析师，擅长使用「横纵分析法」进行深度研究。请用中文输出结构化的研究报告。
 
 ## 横纵分析法说明
 - 纵向分析：沿时间轴还原研究对象从诞生到现在的发展全貌
 - 横向分析：以当前时间点为切面，与同赛道竞品进行全面对比
 - 交叉定位：结合纵向和横向分析，给出切入点建议`;
+  if (template) {
+    systemPrompt = template
+      .replace(/\{subject\}/g, subject)
+      .replace(/\{category\}/g, category);
+  }
 
   const userPrompt = `请使用「横纵分析法」对「${subject}」进行深度研究。
 

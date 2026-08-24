@@ -25,7 +25,6 @@ import { useStore } from "../store/useStore";
 import type { CategoryId, EvolutionLog, Skill, SkillStatus } from "../types";
 import { CATEGORIES, SKILL_STATUS_LABEL } from "../types";
 import { ConfirmDialog, EmptyState } from "../components/ui";
-import { navigateTo } from "../components/Header";
 
 type SkillFilter = "all" | SkillStatus;
 type LogFilter = "all" | EvolutionLog["type"];
@@ -166,11 +165,20 @@ export function SkillPage() {
     toast("success", "Skill 已更新");
   };
 
-  // 使用 Skill
+  // 使用 Skill：跳转到 Learn 页并预选模板，subject 预填 Skill 名称。
   const handleUseSkill = (skill: Skill) => {
     incrementSkillUsage(skill.id);
-    navigateTo("learn");
-    toast("info", `正在使用「${skill.name}」模板...`);
+    // Encode skill id as a hash query string so it survives navigation
+    // without changing the existing route scheme.
+    window.history.pushState(
+      { page: "learn", skillId: skill.id },
+      "",
+      `#/learn?skill=${encodeURIComponent(skill.id)}`
+    );
+    window.dispatchEvent(new CustomEvent("sl:d:navigate", {
+      detail: { page: "learn", skillId: skill.id, subject: skill.name },
+    }));
+    toast("info", `已选模板「${skill.name}」— 在 Learn 页点开始研究即可`);
   };
 
   return (
