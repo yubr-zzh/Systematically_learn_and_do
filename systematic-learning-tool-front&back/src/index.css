@@ -332,7 +332,18 @@ body {
 .md-body.md-dark hr { border-color: var(--color-night-600); }
 
 /* ========== 打印（导出 PDF） ========== */
+@page {
+  size: A4;
+  margin: 18mm 14mm 18mm 14mm;
+}
+
 @media print {
+  html, body {
+    background: white !important;
+    color: #2c3e50 !important;
+  }
+
+  /* Hide everything except the report print area. */
   body * {
     visibility: hidden;
   }
@@ -349,8 +360,57 @@ body {
     background: white !important;
     color: #2c3e50 !important;
     box-shadow: none !important;
+    font-size: 11pt;
+    line-height: 1.55;
   }
   .no-print {
     display: none !important;
+  }
+
+  /* Headings: start a new page for h1, keep h2/h3 with their block. */
+  .md-body h1 {
+    page-break-before: always;
+    page-break-after: avoid;
+  }
+  .md-body h1:first-child,
+  .md-body > article > h1:first-child {
+    page-break-before: avoid;
+  }
+  .md-body h2, .md-body h3 {
+    page-break-after: avoid;
+  }
+  .md-body h2 + *, .md-body h3 + * {
+    page-break-before: avoid;
+  }
+
+  /* Tables: don't split a single row across pages. */
+  .md-body table {
+    page-break-inside: avoid;
+  }
+  .md-body tr {
+    page-break-inside: avoid;
+  }
+  .md-body thead {
+    display: table-header-group; /* repeat header on each page */
+  }
+
+  /* Code blocks: keep together. */
+  .md-body pre, .md-body blockquote {
+    page-break-inside: avoid;
+  }
+
+  /* Lists: keep short lists together. */
+  .md-body ul, .md-body ol {
+    page-break-inside: avoid;
+  }
+
+  /* Links: show the URL after the text in print. */
+  .md-body a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 0.85em;
+    color: #6b7280;
+  }
+  .md-body a[href^="#"]::after {
+    content: "";
   }
 }
