@@ -10,11 +10,23 @@ import type { Page } from "../types";
 import { Avatar } from "./ui";
 import { NAV_ITEMS } from "./navItems";
 
-/** Re-exported for backward-compat with existing imports. */
+/** Navigate to a page (optionally with an id).
+ * Uses history.pushState so the URL update doesn't bounce through
+ * a full hashchange event cycle. The App-level popstate listener
+ * syncs the store when the user uses the browser's back / forward
+ * buttons.
+ */
 export function navigateTo(page: Page, id?: string) {
   const hash = id ? `#/${page}/${id}` : `#/${page}`;
   if (window.location.hash === hash) return;
-  window.location.hash = hash;
+  // We can't pushState with just a hash on all browsers reliably
+  // (some browsers drop the hash-only push), so we go through
+  // location.hash + a manually-fired route update. popstate handles
+  // back/forward.
+  window.history.pushState({ page, id }, "", hash);
+  // Dispatch a custom event so App can sync its store immediately
+  // without waiting for hashchange (which doesn't fire on pushState).
+  window.dispatchEvent(new CustomEvent("sl:d:navigate", { detail: { page, id } }));
 }
 
 export function Header() {

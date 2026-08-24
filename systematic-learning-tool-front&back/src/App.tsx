@@ -5,7 +5,7 @@
 import { useEffect, useMemo } from "react";
 import { cn } from "./utils/cn";
 import { useStore } from "./store/useStore";
-import type { RouterState } from "./types";
+import type { Page, RouterState } from "./types";
 import { Header } from "./components/Header";
 import { Toasts } from "./components/ui";
 import { NAV_ITEMS } from "./components/navItems";
@@ -48,12 +48,35 @@ export default function App() {
   // 初始化：加载所有数据
   useEffect(() => { loadAll(); }, [loadAll]);
 
-  // 路由监听
+  // 路由监听：同时响应 hash 变化、pushState 后发出的 sl:d:navigate 事件、
+  // 以及浏览器的 back/forward (popstate)。
   useEffect(() => {
-    const onHash = () => setRouter(parseHash());
-    window.addEventListener("hashchange", onHash);
-    onHash();
-    return () => window.removeEventListener("hashchange", onHash);
+    const sync = () => setRouter(parseHash());
+    const onNavigate = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ page: Page; id?: string }>).detail;
+      if (detail) {
+        // Mirror parseHash: only set the page-relevant id field so
+        // a /learn/123 navigation doesn't transiently expose
+        // projectId=123 in the store.
+        const next: RouterState = { page: detail.page };
+        if (detail.id) {
+          if (detail.page === "learn") next.reportId = detail.id;
+          else if (detail.page === "projects") next.projectId = detail.id;
+        }
+        setRouter(next);
+      } else {
+        sync();
+      }
+    };
+    window.addEventListener("hashchange", sync);
+    window.addEventListener("sl:d:navigate", onNavigate as EventListener);
+    window.addEventListener("popstate", sync);
+    sync();
+    return () => {
+      window.removeEventListener("hashchange", sync);
+      window.removeEventListener("sl:d:navigate", onNavigate as EventListener);
+      window.removeEventListener("popstate", sync);
+    };
   }, [setRouter]);
 
   // 深色模式
