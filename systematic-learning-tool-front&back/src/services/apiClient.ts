@@ -48,6 +48,9 @@ export const api = {
   updateReport: (id: string, patch: Partial<{ favorite: boolean; content: string; status: string; title: string }>) =>
     request<void>(`/api/learn/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReport: (id: string) => request<void>(`/api/learn/${id}`, { method: 'DELETE' }),
+  getReportVersions: (id: string) => request<any[]>(`/api/learn/${id}/versions`),
+  restoreReportVersion: (id: string, versionId: string) =>
+    request<void>(`/api/learn/${id}/versions/${versionId}/restore`, { method: 'POST' }),
 
   /**
    * Open an SSE stream to /api/learn/:id/stream. Returns a controller

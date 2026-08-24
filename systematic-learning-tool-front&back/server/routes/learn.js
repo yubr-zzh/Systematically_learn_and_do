@@ -129,6 +129,17 @@ router.post('/', async (req, res) => {
           WHERE id = ?
         `).run(result.content, result.wordCount, new Date().toISOString(), id);
 
+        // Snapshot the freshly-generated content as a new version so the
+        // user has something to roll back to after a manual edit. Use
+        // MAX(version)+1 so re-running the AI doesn't collide on v1.
+        const aiVersion = (db.prepare(
+          'SELECT COALESCE(MAX(version), 0) + 1 AS v FROM report_versions WHERE report_id = ?'
+        ).get(id)?.v) || 1;
+        db.prepare(`
+          INSERT INTO report_versions (id, report_id, content, version, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(`ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, id, result.content, aiVersion, new Date().toISOString());
+
         // Update stage (legacy single-stage table)
         db.prepare(`
           UPDATE learn_stages SET status = 'done', progress = 100, content = ?
@@ -183,6 +194,23 @@ router.patch('/:id', (req, res) => {
       params.push(title);
     }
     if (content !== undefined) {
+      // Snapshot the previous content into report_versions so the user
+      // can roll back via the version modal in LearnDetailPage.
+      if (report.content !== content) {
+        const nextVersion = (db.prepare(
+          'SELECT COALESCE(MAX(version), 0) + 1 AS v FROM report_versions WHERE report_id = ?'
+        ).get(id)?.v) || 1;
+        db.prepare(`
+          INSERT INTO report_versions (id, report_id, content, version, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(
+          `ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id,
+          report.content,
+          nextVersion,
+          new Date().toISOString()
+        );
+      }
       updates.push('content = ?');
       params.push(content);
       updates.push('word_count = ?');
@@ -221,18 +249,59 @@ router.delete('/:id', (req, res) => {
   }
 });
 
-// Get report versions
+// Get report versions (includes content so the frontend can preview)
 router.get('/:id/versions', (req, res) => {
   try {
     const { id } = req.params;
     const versions = db.prepare(`
-      SELECT id, version, created_at FROM report_versions
+      SELECT id, version, created_at, content FROM report_versions
       WHERE report_id = ? ORDER BY version DESC
     `).all(id);
     res.json(versions);
   } catch (error) {
     console.error('Error fetching versions:', error);
     res.status(500).json({ error: 'Failed to fetch versions' });
+  }
+});
+
+// Restore a previous version. Snapshots current content as a new
+// version first so the restore itself is reversible.
+router.post('/:id/versions/:vid/restore', (req, res) => {
+  try {
+    const { id, vid } = req.params;
+    const target = db.prepare(
+      'SELECT id, content FROM report_versions WHERE id = ? AND report_id = ?'
+    ).get(vid, id);
+    if (!target) return res.status(404).json({ error: 'Version not found' });
+    const report = db.prepare('SELECT content FROM learn_reports WHERE id = ?').get(id);
+    if (!report) return res.status(404).json({ error: 'Report not found' });
+
+    // Snapshot current content as the next version so the user can
+    // undo the restore.
+    const nextVersion = (db.prepare(
+      'SELECT COALESCE(MAX(version), 0) + 1 AS v FROM report_versions WHERE report_id = ?'
+    ).get(id)?.v) || 1;
+    db.prepare(`
+      INSERT INTO report_versions (id, report_id, content, version, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(
+      `ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id,
+      report.content,
+      nextVersion,
+      new Date().toISOString()
+    );
+
+    // Restore target content into the report.
+    db.prepare(`
+      UPDATE learn_reports SET content = ?, word_count = ?, updated_at = ?
+      WHERE id = ?
+    `).run(target.content, target.content.replace(/\s/g, '').length, new Date().toISOString(), id);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error restoring version:', error);
+    res.status(500).json({ error: 'Failed to restore version' });
   }
 });
 

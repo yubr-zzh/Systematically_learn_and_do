@@ -2,9 +2,10 @@
 // Learn 报告详情页：三阶段进度 / 完整报告 + 收藏、分享、历史版本
 // ============================================================
 
-import { useState } from "react";
-import { Archive, ArchiveRestore, ArrowLeft, History, Link2, Loader2, RefreshCw, Share2, Star } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Archive, ArchiveRestore, ArrowLeft, History, Link2, Loader2, RefreshCw, RotateCcw, Share2, Star } from "lucide-react";
 import { useStore } from "../store/useStore";
+import { api } from "../services/apiClient";
 import { CATEGORIES } from "../types";
 import { CategoryBadge, ConfirmDialog, Modal, StatusBadge } from "../components/ui";
 import { StageProgress } from "../components/StageProgress";
@@ -15,7 +16,39 @@ export function LearnDetailPage({ id }: { id: string }) {
   const { reports, toggleFavorite, archiveReport, deleteReport, refreshReport, stuckReportIds, toast } = useStore();
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [versions, setVersions] = useState<Array<{ id: string; version: number; created_at: string; content: string }>>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
   const report = reports.find((r) => r.id === id);
+
+  // Fetch the full version history (content + metadata) when the modal opens.
+  useEffect(() => {
+    if (!versionsOpen) return;
+    let cancelled = false;
+    setVersionsLoading(true);
+    api.getReportVersions(id)
+      .then(list => { if (!cancelled) setVersions(list || []); })
+      .catch((e) => { if (!cancelled) toast("error", `加载历史版本失败：${(e as Error).message}`); })
+      .finally(() => { if (!cancelled) setVersionsLoading(false); });
+    return () => { cancelled = true; };
+  }, [versionsOpen, id, toast]);
+
+  const restoreVersion = async (versionId: string, v: number) => {
+    try {
+      await api.restoreReportVersion(id, versionId);
+      const updated = await api.getReport(id);
+      // Update local store + versions list.
+      useStore.setState(s => ({
+        reports: s.reports.map(rp => rp.id === id
+          ? { ...rp, content: updated.content, wordCount: (updated.content || "").replace(/\s/g, "").length, updatedAt: new Date().toISOString() }
+          : rp),
+      }));
+      const refreshed = await api.getReportVersions(id);
+      setVersions(refreshed || []);
+      toast("success", `已恢复到版本 v${v}`);
+    } catch (e) {
+      toast("error", `恢复版本失败：${(e as Error).message}`);
+    }
+  };
 
   if (!report) {
     return (
@@ -168,22 +201,31 @@ export function LearnDetailPage({ id }: { id: string }) {
       {/* 历史版本弹窗 */}
       <Modal open={versionsOpen} onClose={() => setVersionsOpen(false)} title="历史版本">
         <div className="space-y-2">
-          {report.versions.length === 0 && <p className="text-sm text-ink-600 dark:text-forest-300/70">暂无历史版本记录。</p>}
-          {[...report.versions].reverse().map((v, i) => (
-            <button
-              key={v}
-              onClick={() => {
-                toast("info", `已回看版本 v${report.versions.length - i}（演示）`);
-                setVersionsOpen(false);
-              }}
-              className="flex w-full items-center justify-between rounded-lg border border-ink-200 dark:border-night-600 px-4 py-2.5 text-sm text-ink-700 dark:text-forest-200 hover:border-forest-500 hover:bg-forest-50 dark:hover:bg-night-700 transition-colors cursor-pointer"
+          {versionsLoading && <p className="text-sm text-ink-600 dark:text-forest-300/70">加载中…</p>}
+          {!versionsLoading && versions.length === 0 && (
+            <p className="text-sm text-ink-600 dark:text-forest-300/70">暂无历史版本记录。每次报告内容变更会自动保留上一版。</p>
+          )}
+          {versions.map(v => (
+            <div
+              key={v.id}
+              className="flex items-center justify-between rounded-lg border border-ink-200 dark:border-night-600 px-4 py-2.5 text-sm"
             >
-              <span className="font-semibold">版本 v{report.versions.length - i}</span>
-              <span className="text-xs text-ink-600 dark:text-forest-300/70">{new Date(v).toLocaleString("zh-CN")}</span>
-            </button>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-ink-900 dark:text-forest-100">版本 v{v.version}</div>
+                <div className="text-xs text-ink-600 dark:text-forest-300/70">{new Date(v.created_at).toLocaleString("zh-CN")}</div>
+              </div>
+              <button
+                onClick={() => restoreVersion(v.id, v.version)}
+                className="btn-soft !py-1 !text-[13px] shrink-0 ml-2"
+                aria-label={`恢复到版本 v${v.version}`}
+                title="恢复到该版本"
+              >
+                <RotateCcw size={13} /> 恢复
+              </button>
+            </div>
           ))}
           <div className="flex w-full items-center justify-between rounded-lg border border-forest-500/50 bg-forest-50 dark:bg-night-700 px-4 py-2.5 text-sm">
-            <span className="font-bold text-forest-600 dark:text-forest-300">版本 v{report.versions.length + 1}（当前）</span>
+            <span className="font-bold text-forest-600 dark:text-forest-300">当前版本</span>
             <span className="text-xs text-ink-600 dark:text-forest-300/70">{new Date(report.updatedAt).toLocaleString("zh-CN")}</span>
           </div>
         </div>
