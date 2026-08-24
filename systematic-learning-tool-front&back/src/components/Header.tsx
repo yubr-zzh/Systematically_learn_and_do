@@ -3,19 +3,14 @@
 // ============================================================
 
 import { useEffect, useRef, useState } from "react";
-import { BookOpen, ChevronDown, FolderKanban, MessageSquareHeart, Moon, Settings as SettingsIcon, Sun, User } from "lucide-react";
+import { ChevronDown, Moon, Settings as SettingsIcon, Sun, User } from "lucide-react";
 import { cn } from "../utils/cn";
 import { useStore } from "../store/useStore";
 import type { Page } from "../types";
 import { Avatar } from "./ui";
+import { NAV_ITEMS } from "./navItems";
 
-const NAV: { page: Page; label: string; icon: typeof BookOpen }[] = [
-  { page: "learn", label: "Learn", icon: BookOpen },
-  { page: "projects", label: "Project", icon: FolderKanban },
-  { page: "feedback", label: "Feedback", icon: MessageSquareHeart },
-  { page: "settings", label: "Settings", icon: SettingsIcon },
-];
-
+/** Re-exported for backward-compat with existing imports. */
 export function navigateTo(page: Page, id?: string) {
   const hash = id ? `#/${page}/${id}` : `#/${page}`;
   if (window.location.hash === hash) return;
@@ -73,7 +68,7 @@ export function Header() {
 
         {/* 桌面导航 */}
         <nav className="hidden md:flex items-center gap-1 rounded-full bg-forest-50 dark:bg-night-800 p-1 border border-ink-200/60 dark:border-night-600" aria-label="主导航">
-          {NAV.map(({ page, label, icon: Icon }) => {
+          {NAV_ITEMS.map(({ page, label, icon: Icon }) => {
             const active = router.page === page;
             return (
               <button

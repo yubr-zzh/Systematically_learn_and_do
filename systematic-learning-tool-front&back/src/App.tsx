@@ -3,12 +3,12 @@
 // ============================================================
 
 import { useEffect, useMemo } from "react";
-import { BookOpen, FolderKanban, MessageSquareHeart, Settings as SettingsIcon, Zap } from "lucide-react";
 import { cn } from "./utils/cn";
 import { useStore } from "./store/useStore";
 import type { RouterState } from "./types";
 import { Header } from "./components/Header";
 import { Toasts } from "./components/ui";
+import { NAV_ITEMS } from "./components/navItems";
 import { LearnPage } from "./pages/LearnPage";
 import { LearnDetailPage } from "./pages/LearnDetailPage";
 import { ProjectPage } from "./pages/ProjectPage";
@@ -37,13 +37,7 @@ function parseHash(): RouterState {
   }
 }
 
-const MOBILE_NAV = [
-  { page: "learn" as const, label: "Learn", icon: BookOpen },
-  { page: "projects" as const, label: "Project", icon: FolderKanban },
-  { page: "skills" as const, label: "Skill", icon: Zap },
-  { page: "feedback" as const, label: "Feedback", icon: MessageSquareHeart },
-  { page: "settings" as const, label: "Settings", icon: SettingsIcon },
-];
+const MOBILE_NAV = NAV_ITEMS;
 
 export default function App() {
   const router = useStore((s) => s.router);
@@ -110,7 +104,7 @@ export default function App() {
         className="no-print fixed bottom-0 left-0 right-0 z-40 border-t border-ink-200/70 dark:border-night-600 bg-white/95 dark:bg-night-900/95 backdrop-blur md:hidden"
         aria-label="底部导航"
       >
-        <div className="grid grid-cols-4">
+        <div className="grid grid-cols-5">
           {MOBILE_NAV.map(({ page, label, icon: Icon }) => {
             const active = router.page === page;
             return (
