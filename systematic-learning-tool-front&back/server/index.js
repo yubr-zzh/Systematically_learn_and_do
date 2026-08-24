@@ -11,7 +11,7 @@ import { fileURLToPath } from 'url';
 // has already populated process.env before any other module reads it
 // at top level (e.g. database.js captures process.env.DB_PATH).
 import { config, validateConfig } from './config.js';
-import { initDatabase } from './db/database.js';
+import { initDatabase, db } from './db/database.js';
 import { seedSkills } from './db/seed.js';
 import { startCuratorLoop } from './services/curator.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
@@ -63,9 +63,26 @@ app.use('/api/skills', skillRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/research', researchRoutes);
 
-// Health check
+// Health check — liveness + readiness probe. Reports DB connectivity,
+// AI key presence, and Curator status. Returns 200 when everything is
+// healthy; 503 when something critical (DB) is down so load balancers
+// can drain the pod.
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  const checks = { db: { ok: false }, aiKey: { ok: false } };
+  try {
+    const row = db.prepare('SELECT 1 AS alive').get();
+    checks.db.ok = row?.alive === 1;
+  } catch (e) {
+    checks.db.error = e.message;
+  }
+  checks.aiKey.ok = !!config.apiKey && config.apiKey.length >= 20;
+  const allOk = checks.db.ok && checks.aiKey.ok;
+  res.status(allOk ? 200 : 503).json({
+    status: allOk ? 'ok' : 'degraded',
+    timestamp: new Date().toISOString(),
+    checks,
+    nodeEnv: config.nodeEnv,
+  });
 });
 
 // Serve static files in production
