@@ -134,9 +134,9 @@ router.post('/', async (req, res) => {
       .on('complete', (result) => {
         db.prepare(`
           UPDATE learn_reports
-          SET content = ?, word_count = ?, progress = 100, status = 'completed', updated_at = ?
+          SET content = ?, word_count = ?, research_meta = ?, progress = 100, status = 'completed', updated_at = ?
           WHERE id = ?
-        `).run(result.content, result.wordCount, new Date().toISOString(), id);
+        `).run(result.content, result.wordCount, JSON.stringify(result.researchMeta || {}), new Date().toISOString(), id);
 
         // Snapshot the freshly-generated content as a new version so the
         // user has something to roll back to after a manual edit. Use

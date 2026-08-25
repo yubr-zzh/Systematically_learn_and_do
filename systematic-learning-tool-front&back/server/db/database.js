@@ -36,10 +36,15 @@ export function initDatabase() {
       content TEXT DEFAULT '',
       favorite INTEGER DEFAULT 0,
       word_count INTEGER DEFAULT 0,
+      research_meta TEXT DEFAULT '{}',
       created_at TEXT DEFAULT (datetime('now')),
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
+
+  try { db.exec("ALTER TABLE learn_reports ADD COLUMN research_meta TEXT DEFAULT '{}'"); } catch (error) {
+    if (!String(error.message).includes('duplicate column name')) throw error;
+  }
 
   // Learn Report Stages
   db.exec(`
@@ -67,6 +72,7 @@ export function initDatabase() {
       content TEXT DEFAULT '',
       cover INTEGER DEFAULT 0,
       word_count INTEGER DEFAULT 0,
+      research_meta TEXT DEFAULT '{}',
       due_date TEXT,
       start_date TEXT,
       ref_link TEXT,
@@ -74,6 +80,10 @@ export function initDatabase() {
       updated_at TEXT DEFAULT (datetime('now'))
     )
   `);
+
+  try { db.exec("ALTER TABLE projects ADD COLUMN research_meta TEXT DEFAULT '{}'"); } catch (error) {
+    if (!String(error.message).includes('duplicate column name')) throw error;
+  }
 
   // Project Stages
   db.exec(`

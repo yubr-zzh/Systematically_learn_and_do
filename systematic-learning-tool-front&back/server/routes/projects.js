@@ -103,9 +103,9 @@ router.post('/', (req, res) => {
     runProjectResearch(name, description)
       .then(result => {
         db.prepare(`
-          UPDATE projects SET content = ?, word_count = ?, updated_at = ?
+          UPDATE projects SET content = ?, word_count = ?, research_meta = ?, updated_at = ?
           WHERE id = ?
-        `).run(result.content, result.wordCount, new Date().toISOString(), id);
+        `).run(result.content, result.wordCount, JSON.stringify(result.stages.research.researchMeta || {}), new Date().toISOString(), id);
         
         db.prepare(`
           UPDATE project_stages SET status = 'done', progress = 100, content = ?

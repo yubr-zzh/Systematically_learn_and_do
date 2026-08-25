@@ -62,6 +62,9 @@ export function mapReport(r: any): LearnReport {
     versions: [],
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    researchMeta: typeof r.research_meta === "string"
+      ? (() => { try { return JSON.parse(r.research_meta); } catch { return undefined; } })()
+      : r.research_meta,
   };
 }
 
@@ -82,6 +85,9 @@ export function mapProject(p: any): Project {
     wordCount: p.word_count ?? 0,
     cover: p.cover ?? 0,
     createdAt: p.created_at,
+    researchMeta: typeof p.research_meta === "string"
+      ? (() => { try { return JSON.parse(p.research_meta); } catch { return undefined; } })()
+      : p.research_meta,
     dueDate: p.due_date, startDate: p.start_date, refLink: p.ref_link,
   };
 }

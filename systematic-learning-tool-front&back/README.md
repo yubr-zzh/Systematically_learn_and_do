@@ -16,6 +16,7 @@ framework, with an integrated self-evolving Skill library.
 - 历史报告自动按状态、收藏、字数排序
 - 一键导出 PDF / 复制分享链接
 - **报告版本快照 + 恢复**（每次内容变更自动留档）
+- **时效性联网调研**：可配置 Tavily 或 Brave Search，报告保留检索时间、查询词、来源 URL 和摘要；未配置时明确标注为非联网结果。
 
 ### Project (项目模式)
 - 为项目自动生成**调研报告 + 实施路线图**
@@ -65,6 +66,7 @@ npm install
 # 2. Configure
 cp .env.example .env
 # Edit .env and set DEEPSEEK_API_KEY to your real key
+# Recommended for current/fresh facts: set TAVILY_API_KEY or BRAVE_SEARCH_API_KEY
 
 # 3. Dev (frontend + backend concurrently)
 npm run dev          # Vite at http://localhost:5174 + API at http://localhost:3001
@@ -163,7 +165,8 @@ Each transition is logged to `evolution_logs` so the Skill page can show a full 
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/api/health` | Liveness + readiness; returns 200 or 503 |
+| GET | `/api/health` | Liveness + capability checks; DB down returns 503, AI/search are reported separately |
+| POST | `/api/research/search` | Direct normalized web search (`query`, optional `options`) |
 | POST | `/api/learn` | Create report + start AI research |
 | GET | `/api/learn` | List reports |
 | GET | `/api/learn/:id` | One report |

@@ -57,6 +57,11 @@ export const config = {
   apiKey: process.env.DEEPSEEK_API_KEY || process.env.API_KEY || "",
   apiBaseUrl: process.env.API_BASE_URL || "https://api.deepseek.com/v1",
   aiModel: process.env.AI_MODEL || "deepseek-chat",
+  webSearchProvider: (process.env.WEB_SEARCH_PROVIDER || "auto").toLowerCase(),
+  tavilyApiKey: process.env.TAVILY_API_KEY || "",
+  braveSearchApiKey: process.env.BRAVE_SEARCH_API_KEY || "",
+  webSearchTimeoutMs: parseNumericEnv("WEB_SEARCH_TIMEOUT_MS", 12_000),
+  webSearchMaxResults: parseNumericEnv("WEB_SEARCH_MAX_RESULTS", 8),
   /** Comma-separated list of allowed CORS origins. Empty = allow all (dev only). */
   allowedOrigins: (process.env.ALLOWED_ORIGINS || "")
     .split(",")
@@ -87,6 +92,9 @@ export function validateConfig() {
   }
   if (!config.apiBaseUrl.startsWith("http")) {
     problems.push(`API_BASE_URL looks invalid: "${config.apiBaseUrl}".`);
+  }
+  if (!['auto', 'tavily', 'brave', 'none'].includes(config.webSearchProvider)) {
+    problems.push(`WEB_SEARCH_PROVIDER must be auto, tavily, brave, or none (got "${config.webSearchProvider}").`);
   }
   return { ok: problems.length === 0, problems };
 }

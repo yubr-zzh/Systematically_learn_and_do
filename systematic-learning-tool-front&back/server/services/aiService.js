@@ -6,6 +6,7 @@
 import fetch from 'node-fetch';
 import https from 'node:https';
 import { config } from '../config.js';
+import { formatEvidenceForPrompt, searchWeb } from './webSearch.js';
 
 const API_KEY = config.apiKey;
 const API_BASE_URL = config.apiBaseUrl;
@@ -54,7 +55,14 @@ async function callAI(messages, options = {}) {
  * Uses horizontal-vertical-analysis skill
  */
 export async function stage1HorizontalVerticalAnalysis(subject, category, options = {}) {
-  const { depth = 'standard', template } = options;
+  const { depth = 'standard', template, sources = config.webSearchMaxResults, searchQueries = [], timeRange } = options;
+  const currentDate = new Date().toISOString().slice(0, 10);
+  const queries = searchQueries.length > 0 ? searchQueries : [
+    `${subject} latest developments ${new Date().getUTCFullYear()}`,
+    `${subject} official documentation guide`,
+    `${subject} best practices pitfalls`,
+  ];
+  const evidence = await searchWeb(queries, { maxResults: sources, depth, timeRange });
 
   // If a Skill template is provided, replace {subject} / {category}
   // placeholders and use it as the system prompt. This is how
@@ -96,15 +104,18 @@ ${subject}（属于 ${category} 领域）
 
 篇幅：${depth === 'deep' ? '8000-15000字' : depth === 'standard' ? '4000-8000字' : '2000-4000字'}`;
 
+  const enrichedUserPrompt = `${userPrompt}\n\n## 时效性与来源要求\n当前日期：${currentDate}\n- 涉及版本、价格、政策、发布日期、当前趋势等易变事实时，优先使用联网资料。\n- 使用联网资料时在相关句子末尾保留 [n] 引用，并在报告末尾输出来源与检索时间。\n- 如果联网资料不可用，不要编造引用，并明确标注哪些内容可能已过时。\n\n## 联网检索证据\n${formatEvidenceForPrompt(evidence)}`;
+
   const content = await callAI([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
+    { role: 'user', content: enrichedUserPrompt },
   ], { maxTokens: depth === 'deep' ? 8000 : 4000 });
 
   return {
     stage: 'analysis',
     content,
     wordCount: content.replace(/\s/g, '').length,
+    researchMeta: evidence,
   };
 }
 
@@ -113,19 +124,18 @@ ${subject}（属于 ${category} 领域）
  * Searches for related practices and extracts key patterns
  */
 export async function stage2DeepResearch(subject, analysisContent, options = {}) {
-  const { sources = 8, searchQueries = [] } = options;
+  const { sources = config.webSearchMaxResults, searchQueries = [], timeRange } = options;
   
   // Build search queries based on subject
   const queries = searchQueries.length > 0 
     ? searchQueries 
     : [
-        `${subject} best practices 2024`,
+        `${subject} latest developments ${new Date().getUTCFullYear()}`,
         `${subject} common mistakes pitfalls`,
         `${subject} implementation guide`,
       ];
 
-  // Note: In production, you would use web search API here
-  // For now, we'll generate research content based on analysis
+  const evidence = await searchWeb(queries, { maxResults: sources, depth: 'deep', timeRange });
   
   const systemPrompt = `你是一位资深的研究分析师，擅长从实践中提取关键模式和常见坑点。`;
 
@@ -153,15 +163,17 @@ ${'```'}
 
 请输出 Markdown 格式内容。`;
 
+  const enrichedUserPrompt = `${userPrompt}\n\n## 联网检索证据\n${formatEvidenceForPrompt(evidence)}\n\n请在使用联网资料时保留 [n] 引用和来源列表。`;
   const content = await callAI([
     { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
+    { role: 'user', content: enrichedUserPrompt },
   ], { maxTokens: 3000 });
 
   return {
     stage: 'research',
     content,
     wordCount: content.replace(/\s/g, '').length,
+    researchMeta: evidence,
   };
 }
 
@@ -226,12 +238,12 @@ ${'```'}
  * 针对：学习新概念 / 新领域
  */
 export async function runLearnAnalysis(subject, category, options = {}) {
-  const { depth = 'standard' } = options;
+  const { depth = 'standard', sources = config.webSearchMaxResults, timeRange } = options;
   console.log(`[Learn] 横纵分析: ${subject}`);
 
   let stage1;
   try {
-    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth });
+    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth, sources, timeRange });
   } catch (e) {
     console.warn('[Learn] AI 不可用，使用模板:', e.message);
     stage1 = generateTemplateReport(subject, category);
@@ -241,6 +253,7 @@ export async function runLearnAnalysis(subject, category, options = {}) {
     content: stage1.content,
     stages: { analysis: stage1 },
     wordCount: stage1.wordCount,
+    researchMeta: stage1.researchMeta || { available: false, results: [], searchedAt: new Date().toISOString() },
   };
 }
 

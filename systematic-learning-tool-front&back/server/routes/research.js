@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { stage1HorizontalVerticalAnalysis, stage2DeepResearch, stage3Planning } from '../services/aiService.js';
+import { searchWeb } from '../services/webSearch.js';
 
 const router = Router();
 
@@ -55,7 +56,7 @@ router.post('/stage/:stageId', async (req, res) => {
   }
 });
 
-// Search related content (placeholder for web search integration)
+// Search related content using the configured provider.
 router.post('/search', async (req, res) => {
   try {
     const { query } = req.body;
@@ -64,13 +65,8 @@ router.post('/search', async (req, res) => {
       return res.status(400).json({ error: 'query is required' });
     }
 
-    // Placeholder: In production, integrate with web search API
-    // For now, return empty results
-    res.json({
-      query,
-      results: [],
-      message: 'Web search integration coming soon',
-    });
+    const result = await searchWeb([query], req.body.options || {});
+    res.json({ query, ...result });
   } catch (error) {
     console.error('Error searching:', error);
     res.status(500).json({ error: 'Failed to search' });

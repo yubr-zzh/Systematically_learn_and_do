@@ -57,6 +57,19 @@ test("/api/health returns X-Request-Id header", async () => {
   assert.ok(res.headers.get("x-request-id"), "X-Request-Id header missing");
 });
 
+test("/api/research/search returns explicit unavailable state without a provider", async () => {
+  const res = await fetch(`${baseUrl}/api/research/search`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ query: "current test query" }),
+  });
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.query, "current test query");
+  assert.equal(typeof body.available, "boolean");
+  assert.ok(Array.isArray(body.results));
+});
+
 test("POST /api/learn with missing subject -> 400 with details", async () => {
   const res = await fetch(`${baseUrl}/api/learn`, {
     method: "POST",

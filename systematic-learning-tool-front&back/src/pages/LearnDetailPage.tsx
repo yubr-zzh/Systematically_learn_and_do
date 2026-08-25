@@ -7,6 +7,7 @@ import { Archive, ArchiveRestore, ArrowLeft, History, Link2, Loader2, RefreshCw,
 import { useStore } from "../store/useStore";
 import { api } from "../services/apiClient";
 import { CATEGORIES } from "../types";
+import type { LearnReport } from "../types";
 import { CategoryBadge, ConfirmDialog, Modal, StatusBadge } from "../components/ui";
 import { StageProgress } from "../components/StageProgress";
 import { ReportViewer } from "../components/ReportViewer";
@@ -174,6 +175,7 @@ export function LearnDetailPage({ id }: { id: string }) {
           </div>
         </div>
       ) : (
+        <>
         <ReportViewer
           content={report.content}
           extraActions={
@@ -196,6 +198,8 @@ export function LearnDetailPage({ id }: { id: string }) {
             </div>
           }
         />
+        <ResearchSources meta={report.researchMeta} />
+        </>
       )}
 
       {/* 历史版本弹窗 */}
@@ -243,6 +247,28 @@ export function LearnDetailPage({ id }: { id: string }) {
         confirmText="删除"
       />
     </div>
+  );
+}
+
+function ResearchSources({ meta }: { meta?: LearnReport["researchMeta"] }) {
+  if (!meta) return null;
+  return (
+    <section className="card mt-6 p-5" aria-label="研究来源">
+      <h2 className="text-base font-bold text-ink-900 dark:text-forest-100">研究来源与时效</h2>
+      <p className="mt-1 text-xs text-ink-600 dark:text-forest-300/70">
+        {meta.available ? `已通过 ${meta.provider || "联网搜索"} 检索于 ${meta.searchedAt ? new Date(meta.searchedAt).toLocaleString("zh-CN") : "未知时间"}` : `未执行联网搜索：${meta.warning || "未配置搜索提供商"}`}
+      </p>
+      {meta.results?.length > 0 && (
+        <ol className="mt-3 space-y-2 text-sm">
+          {meta.results.map((source, index) => (
+            <li key={`${source.url}-${index}`}>
+              <a className="font-medium text-forest-600 underline" href={source.url} target="_blank" rel="noreferrer">[{index + 1}] {source.title || source.url}</a>
+              {source.publishedAt && <span className="ml-2 text-xs text-ink-500">{source.publishedAt}</span>}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
   );
 }
 

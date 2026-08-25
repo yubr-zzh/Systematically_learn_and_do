@@ -52,6 +52,7 @@ export function streamLearnAnalysis(subject, category, options = {}) {
       emitter.emit("complete", {
         content: result.content,
         wordCount: result.wordCount,
+        researchMeta: result.researchMeta,
       });
     })
     .catch((err) => {

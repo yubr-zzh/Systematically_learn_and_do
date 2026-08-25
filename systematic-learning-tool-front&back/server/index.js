@@ -71,7 +71,7 @@ app.use('/api/research', researchRoutes);
 // healthy; 503 when something critical (DB) is down so load balancers
 // can drain the pod.
 app.get('/api/health', (req, res) => {
-  const checks = { db: { ok: false }, aiKey: { ok: false } };
+  const checks = { db: { ok: false }, aiKey: { ok: false }, webSearch: { ok: false, configured: false } };
   try {
     const row = db.prepare('SELECT 1 AS alive').get();
     checks.db.ok = row?.alive === 1;
@@ -79,7 +79,11 @@ app.get('/api/health', (req, res) => {
     checks.db.error = e.message;
   }
   checks.aiKey.ok = !!config.apiKey && config.apiKey.length >= 20;
-  const allOk = checks.db.ok && checks.aiKey.ok;
+  checks.webSearch.configured = config.webSearchProvider !== 'none' && Boolean(config.tavilyApiKey || config.braveSearchApiKey);
+  checks.webSearch.ok = checks.webSearch.configured;
+  // AI and web search are capabilities, not liveness dependencies: the app
+  // can still serve saved reports and explicit template fallbacks without them.
+  const allOk = checks.db.ok;
   res.status(allOk ? 200 : 503).json({
     status: allOk ? 'ok' : 'degraded',
     timestamp: new Date().toISOString(),

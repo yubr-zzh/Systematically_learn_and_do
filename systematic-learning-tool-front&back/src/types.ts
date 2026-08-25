@@ -39,6 +39,24 @@ export interface LearnReport {
   versions: string[];
   createdAt: string;
   updatedAt: string;
+  researchMeta?: ResearchMeta;
+}
+
+export interface ResearchSource {
+  title: string;
+  url: string;
+  snippet: string;
+  publishedAt?: string | null;
+  provider?: string;
+}
+
+export interface ResearchMeta {
+  available: boolean;
+  provider?: string | null;
+  searchedAt?: string;
+  queries?: string[];
+  warning?: string;
+  results: ResearchSource[];
 }
 
 export type ProjectTypeId = "product" | "tech" | "growth" | "general";
@@ -78,6 +96,7 @@ export interface Project {
   dueDate?: string;
   startDate?: string;
   refLink?: string;
+  researchMeta?: ResearchMeta;
 }
 
 export interface FeedbackItem {
