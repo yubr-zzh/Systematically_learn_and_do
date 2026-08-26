@@ -149,4 +149,11 @@ export const api = {
   getSettings: () => request<any>('/api/settings'),
   updateSettings: (patch: Record<string, unknown>) =>
     request<void>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
+  importData: (payload: unknown) =>
+    request<{ success: boolean }>('/api/settings/import', { method: 'POST', body: JSON.stringify(payload) }),
+  clearData: () =>
+    request<{ success: boolean }>('/api/settings/clear', {
+      method: 'POST',
+      body: JSON.stringify({ confirm: 'DELETE_ALL_DATA' }),
+    }),
 };

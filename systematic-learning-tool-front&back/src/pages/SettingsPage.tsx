@@ -72,8 +72,8 @@ export function SettingsPage() {
 
   const handleImport = (file: File) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const ok = importData(String(reader.result));
+    reader.onload = async () => {
+      const ok = await importData(String(reader.result));
       if (ok) toast("success", "数据导入成功 ✓");
       else toast("error", "文件格式不正确，导入失败");
     };

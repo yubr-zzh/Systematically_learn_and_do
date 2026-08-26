@@ -70,8 +70,8 @@ export type AppState = UISlice & {
   settings: UserSettings;
   updateSettings: (p: Partial<UserSettings>) => Promise<void>;
   exportData: () => string;
-  importData: (json: string) => boolean;
-  clearHistory: () => void;
+  importData: (json: string) => Promise<boolean>;
+  clearHistory: () => Promise<void>;
   syncNow: () => void;
 
   // Init
