@@ -75,6 +75,12 @@ test("validateProjectCreate: valid passes", () => {
   }
 });
 
+test("project refLink only accepts http/https URLs", () => {
+  assert.equal(validateProjectCreate({ name: "X", description: "d", type: "general", refLink: "https://example.com" }).length, 0);
+  assert.equal(validateProjectCreate({ name: "X", description: "d", type: "general", refLink: "javascript:alert(1)" }).length, 1);
+  assert.equal(validateProjectPatch({ refLink: "not a url" }).length, 1);
+});
+
 test("validateProjectPatch: progress out of range", () => {
   assert.equal(validateProjectPatch({ progress: -1 }).length, 1);
   assert.equal(validateProjectPatch({ progress: 150 }).length, 1);

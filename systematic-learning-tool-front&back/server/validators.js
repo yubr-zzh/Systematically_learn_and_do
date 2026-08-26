@@ -61,6 +61,17 @@ function lengthError(field, value, range) {
   return null;
 }
 
+function urlError(field, value) {
+  if (value === undefined || value === null || value === "") return null;
+  try {
+    const url = new URL(String(value));
+    if (!['http:', 'https:'].includes(url.protocol)) return `${field} 鍙敮鎸� http/https`;
+  } catch {
+    return `${field} 蹇呴』鏄湁鏁堢殑 URL`;
+  }
+  return null;
+}
+
 /** Helper used by routes: collects errors and returns 400 if any. */
 export function badRequestIfAny(res, errors) {
   if (errors.length) {
@@ -111,6 +122,7 @@ export function validateProjectPatch(body) {
     const e = lengthError("name", body.name, RANGES.nameLength);
     if (e) errs.push(e);
   }
+  const e4 = urlError("refLink", body.refLink); if (e4) errs.push(e4);
   return errs;
 }
 
@@ -128,6 +140,7 @@ export function validateProjectCreate(body) {
   else {
     const e3 = enumError("type", body.type, ENUMS.projectType); if (e3) errs.push(e3);
   }
+  const e4 = urlError("refLink", body.refLink); if (e4) errs.push(e4);
   return errs;
 }
 
