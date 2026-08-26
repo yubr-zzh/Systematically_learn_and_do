@@ -56,8 +56,14 @@ router.get('/export', (req, res) => {
   try {
     const reports = db.prepare('SELECT * FROM learn_reports').all();
     const projects = db.prepare('SELECT * FROM projects').all();
+    const reportStages = db.prepare('SELECT * FROM learn_stages').all();
+    const projectStages = db.prepare('SELECT * FROM project_stages').all();
+    const projectTasks = db.prepare('SELECT * FROM project_tasks').all();
+    const projectMilestones = db.prepare('SELECT * FROM project_milestones').all();
+    const reportVersions = db.prepare('SELECT * FROM report_versions').all();
     const feedback = db.prepare('SELECT * FROM feedback').all();
     const skills = db.prepare('SELECT * FROM skills').all();
+    const evolutionLogs = db.prepare('SELECT * FROM evolution_logs').all();
     const settings = db.prepare('SELECT * FROM user_settings WHERE id = 1').get();
     
     const exportData = {
@@ -66,8 +72,14 @@ router.get('/export', (req, res) => {
       data: {
         reports,
         projects,
+        reportStages,
+        projectStages,
+        projectTasks,
+        projectMilestones,
+        reportVersions,
         feedback,
         skills,
+        evolutionLogs,
         settings,
       },
     };
@@ -101,6 +113,7 @@ router.post('/import', (req, res) => {
       if (badRequestIfAny(res, errs)) return;
     }
     
+    const importAll = db.transaction(() => {
     // Import reports
     if (reports) {
       const insertReport = db.prepare(`
@@ -109,6 +122,13 @@ router.post('/import', (req, res) => {
       `);
       reports.forEach(r => {
         insertReport.run(r.id, r.title, r.subject, r.category, r.status, r.progress, r.content, r.favorite, r.word_count, r.created_at, r.updated_at);
+        if (Array.isArray(r.stages)) {
+          const insertStage = db.prepare(`
+            INSERT OR REPLACE INTO learn_stages (id, report_id, stage_id, name, status, progress, content)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+          `);
+          r.stages.forEach(s => insertStage.run(s.id, r.id, s.stage_id, s.name, s.status, s.progress ?? 0, s.content ?? ''));
+        }
       });
     }
     
@@ -120,6 +140,20 @@ router.post('/import', (req, res) => {
       `);
       projects.forEach(p => {
         insertProject.run(p.id, p.name, p.description, p.type, p.status, p.progress, p.content, p.cover, p.word_count, p.due_date, p.start_date, p.ref_link, p.created_at, p.updated_at);
+        if (Array.isArray(p.tasks)) {
+          const insertTask = db.prepare(`
+            INSERT OR REPLACE INTO project_tasks (id, project_id, title, phase, done, due_date)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+          p.tasks.forEach(t => insertTask.run(t.id, p.id, t.title, t.phase, t.done ? 1 : 0, t.due_date ?? null));
+        }
+        if (Array.isArray(p.milestones)) {
+          const insertMilestone = db.prepare(`
+            INSERT OR REPLACE INTO project_milestones (id, project_id, phase, name, duration, goal)
+            VALUES (?, ?, ?, ?, ?, ?)
+          `);
+          p.milestones.forEach((m, index) => insertMilestone.run(`${p.id}-milestone-${index}`, p.id, m.phase, m.name, m.duration, m.goal));
+        }
       });
     }
     
@@ -152,6 +186,9 @@ router.post('/import', (req, res) => {
         WHERE id = 1
       `).run(settings.username, settings.avatar, settings.theme, settings.font_size, settings.analysis_depth, settings.research_sources, settings.planning_style, new Date().toISOString());
     }
+    });
+
+    importAll();
     
     res.json({ success: true, message: 'Data imported successfully' });
   } catch (error) {

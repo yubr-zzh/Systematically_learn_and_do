@@ -24,6 +24,11 @@ function toServerImport(data: any) {
       status: r.status, progress: r.progress, content: r.content,
       favorite: r.favorite ? 1 : 0, word_count: r.wordCount ?? r.word_count ?? 0,
       created_at: r.createdAt ?? r.created_at, updated_at: r.updatedAt ?? r.updated_at,
+      stages: (r.stages || []).map((s: any) => ({
+        id: s.id ?? `${r.id}-${s.stage_id ?? s.stageId}`,
+        stage_id: s.stage_id ?? s.stageId, name: s.name, status: s.status,
+        progress: s.progress ?? 0, content: s.content ?? "",
+      })),
     })),
     projects: (data.projects || []).map((p: any) => ({
       id: p.id, name: p.name, description: p.description, type: p.type,
@@ -32,6 +37,13 @@ function toServerImport(data: any) {
       due_date: p.dueDate ?? p.due_date, start_date: p.startDate ?? p.start_date,
       ref_link: p.refLink ?? p.ref_link, created_at: p.createdAt ?? p.created_at,
       updated_at: p.updatedAt ?? p.updated_at,
+      tasks: (p.tasks || []).map((t: any) => ({
+        id: t.id, title: t.title, phase: t.phase, done: t.done ? 1 : 0,
+        due_date: t.dueDate ?? t.due_date,
+      })),
+      milestones: (p.milestones || []).map((m: any) => ({
+        phase: m.phase, name: m.name, duration: m.duration, goal: m.goal,
+      })),
     })),
     feedback: (data.feedbacks || data.feedback || []).map((f: any) => ({
       id: f.id, report_id: f.reportId ?? f.report_id, report_title: f.reportTitle ?? f.report_title,

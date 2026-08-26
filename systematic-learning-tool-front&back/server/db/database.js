@@ -22,6 +22,13 @@ export const db = new Database(dbPath);
 // Enable foreign keys
 db.pragma('foreign_keys = ON');
 
+db.exec(`
+  CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+  )
+`);
+
 // Initialize tables
 export function initDatabase() {
   // Learn Reports table
@@ -211,6 +218,10 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_skills_status ON skills(status);
     CREATE INDEX IF NOT EXISTS idx_evolution_logs_timestamp ON evolution_logs(timestamp);
   `);
+
+  db.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)
+  `).run(new Date().toISOString());
 
   console.log('Database tables initialized');
 }
