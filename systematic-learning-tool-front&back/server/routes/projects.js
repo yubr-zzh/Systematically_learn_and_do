@@ -4,6 +4,7 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
+import { projectRepository } from '../repositories/projectRepository.js';
 import { runProjectResearch } from '../services/aiService.js';
 import { badRequestIfAny, validateProjectCreate, validateProjectPatch, validateTaskAdd } from '../validators.js';
 
@@ -47,22 +48,13 @@ router.get('/', (req, res) => {
 router.get('/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const project = db.prepare('SELECT * FROM projects WHERE id = ?').get(id);
+    const project = projectRepository.findById(id);
     
     if (!project) {
       return res.status(404).json({ error: 'Project not found' });
     }
     
-    const stages = db.prepare('SELECT * FROM project_stages WHERE project_id = ?').all(id);
-    const tasks = db.prepare('SELECT * FROM project_tasks WHERE project_id = ?').all(id);
-    const milestones = db.prepare('SELECT * FROM project_milestones WHERE project_id = ?').all(id);
-    
-    res.json({
-      ...project,
-      stages,
-      tasks,
-      milestones,
-    });
+    res.json(project);
   } catch (error) {
     console.error('Error fetching project:', error);
     res.status(500).json({ error: 'Failed to fetch project' });
