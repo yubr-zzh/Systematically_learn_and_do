@@ -101,6 +101,8 @@ router.post('/', async (req, res) => {
     
     // Create stages (学习只做横纵分析)
     const stages = [
+      { id: 'research', name: '娣卞害璋冪爺', status: 'pending', progress: 0 },
+      { id: 'planning', name: '瑙勫垝寤鸿', status: 'pending', progress: 0 },
       { id: 'analysis', name: '横纵分析', status: 'active', progress: 0 },
     ];
     
@@ -150,10 +152,14 @@ router.post('/', async (req, res) => {
         `).run(`ver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, id, result.content, aiVersion, new Date().toISOString());
 
         // Update stage (legacy single-stage table)
-        db.prepare(`
-          UPDATE learn_stages SET status = 'done', progress = 100, content = ?
-          WHERE report_id = ? AND stage_id = ?
-        `).run(result.content, id, 'analysis');
+        for (const stageId of ['analysis', 'research', 'planning']) {
+          const stage = result.stages?.[stageId];
+          if (!stage) continue;
+          db.prepare(`
+            UPDATE learn_stages SET status = 'done', progress = 100, content = ?
+            WHERE report_id = ? AND stage_id = ?
+          `).run(stage.content, id, stageId);
+        }
 
         console.log(`[Learn] 横纵分析完成: ${subject}`);
       })

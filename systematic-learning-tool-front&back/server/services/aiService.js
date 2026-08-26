@@ -249,10 +249,28 @@ export async function runLearnAnalysis(subject, category, options = {}) {
     stage1 = generateTemplateReport(subject, category);
   }
 
+  let stage2;
+  try {
+    stage2 = await stage2DeepResearch(subject, stage1.content, { sources, timeRange });
+  } catch (e) {
+    console.warn('[Learn] deep research fallback:', e.message);
+    stage2 = { stage: 'research', content: '## Deep Research\\n\\nAI unavailable; use the analysis above to continue practical research.', wordCount: 50, researchMeta: stage1.researchMeta };
+  }
+
+  let stage3;
+  try {
+    stage3 = await stage3Planning(subject, stage1.content, stage2.content, { style: 'hybrid' });
+  } catch (e) {
+    console.warn('[Learn] planning fallback:', e.message);
+    stage3 = { stage: 'planning', content: '## Planning Suggestions\\n\\nCreate a learning roadmap from the core concepts and pitfalls.', wordCount: 30 };
+  }
+
+  const content = [stage1.content, stage2.content, stage3.content].join('\\n\\n---\\n\\n');
+
   return {
-    content: stage1.content,
-    stages: { analysis: stage1 },
-    wordCount: stage1.wordCount,
+    content,
+    stages: { analysis: stage1, research: stage2, planning: stage3 },
+    wordCount: content.replace(/\\s/g, '').length,
     researchMeta: stage1.researchMeta || { available: false, results: [], searchedAt: new Date().toISOString() },
   };
 }
