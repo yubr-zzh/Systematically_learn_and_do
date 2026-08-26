@@ -101,13 +101,24 @@ export function mapFeedback(f: any): FeedbackItem {
 }
 
 export function mapSkill(s: any): Skill {
+  let tags: unknown[] = [];
+  if (typeof s.tags === "string") {
+    try {
+      const parsed = JSON.parse(s.tags);
+      if (Array.isArray(parsed)) tags = parsed;
+    } catch {
+      tags = [];
+    }
+  } else if (Array.isArray(s.tags)) {
+    tags = s.tags;
+  }
   return {
     id: s.id, name: s.name, description: s.description, content: s.content,
     category: s.category as CategoryId,
     status: (s.status || "active") as SkillStatus,
     usageCount: s.usage_count ?? 0, rating: s.rating ?? 0,
     version: s.version ?? 1, author: s.author ?? "user",
-    tags: typeof s.tags === "string" ? JSON.parse(s.tags) : (s.tags || []),
+    tags: tags as string[],
     createdAt: s.created_at, updatedAt: s.updated_at,
   };
 }

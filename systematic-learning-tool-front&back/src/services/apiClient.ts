@@ -9,12 +9,15 @@ declare global {
 }
 
 const BASE = import.meta.env.VITE_API_BASE_URL || '';
+type ApiRow = Record<string, unknown>;
+export type ReportVersionRow = { id: string; version: number; created_at: string; content: string };
 
 async function request<T>(path: string, options?: RequestInit & { params?: Record<string, string> }): Promise<T> {
-  const url = options?.params
-    ? path + '?' + Object.entries(options.params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
+  const params = options?.params;
+  const url = params
+    ? path + '?' + Object.entries(params).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')
     : path;
-  const { params, ...rest } = (options || {}) as any;
+  const { params: _ignored, ...rest } = options || {};
   const res = await fetch(`${BASE}${url}`, {
     headers: { 'Content-Type': 'application/json', ...rest?.headers },
     ...rest,
@@ -38,8 +41,8 @@ type SimpleResponse = { id: string };
 export const api = {
   // ---- Learn Reports ----
   getReports: (params?: Record<string, string>) =>
-    request<any[]>('/api/learn', { params }),
-  getReport: (id: string) => request<any>(`/api/learn/${id}`),
+    request<ApiRow[]>('/api/learn', { params }),
+  getReport: (id: string) => request<ApiRow & { content: string }>(`/api/learn/${id}`),
   createReport: (subject: string, category: string, depth = 'standard', skillId?: string) =>
     request<SimpleResponse>('/api/learn', {
       method: 'POST',
@@ -48,7 +51,7 @@ export const api = {
   updateReport: (id: string, patch: Partial<{ favorite: boolean; content: string; status: string; title: string }>) =>
     request<void>(`/api/learn/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
   deleteReport: (id: string) => request<void>(`/api/learn/${id}`, { method: 'DELETE' }),
-  getReportVersions: (id: string) => request<any[]>(`/api/learn/${id}/versions`),
+  getReportVersions: (id: string) => request<ReportVersionRow[]>(`/api/learn/${id}/versions`),
   restoreReportVersion: (id: string, versionId: string) =>
     request<void>(`/api/learn/${id}/versions/${versionId}/restore`, { method: 'POST' }),
 
@@ -105,8 +108,8 @@ export const api = {
   },
 
   // ---- Projects ----
-  getProjects: () => request<any[]>('/api/projects'),
-  getProject: (id: string) => request<any>(`/api/projects/${id}`),
+  getProjects: () => request<ApiRow[]>('/api/projects'),
+  getProject: (id: string) => request<ApiRow>(`/api/projects/${id}`),
   createProject: (data: { name: string; description: string; type: string; dueDate?: string; startDate?: string; refLink?: string }) =>
     request<SimpleResponse>('/api/projects', { method: 'POST', body: JSON.stringify(data) }),
   updateProject: (id: string, patch: Record<string, unknown>) =>
@@ -121,14 +124,14 @@ export const api = {
 
   // ---- Feedback ----
   getFeedback: (reportId?: string) =>
-    request<any[]>(`/api/feedback${reportId ? '?reportId=' + reportId : ''}`),
+    request<ApiRow[]>(`/api/feedback${reportId ? '?reportId=' + reportId : ''}`),
   addFeedback: (data: { reportId?: string; reportTitle: string; rating: number; strengths: string; improvements: string; comment: string }) =>
     request<SimpleResponse>('/api/feedback', { method: 'POST', body: JSON.stringify(data) }),
   deleteFeedback: (id: string) => request<void>(`/api/feedback/${id}`, { method: 'DELETE' }),
 
   // ---- Skills ----
   getSkills: (params?: Record<string, string>) =>
-    request<any[]>('/api/skills', { params }),
+    request<ApiRow[]>('/api/skills', { params }),
   createSkill: (data: Record<string, unknown>) =>
     request<SimpleResponse>('/api/skills', { method: 'POST', body: JSON.stringify(data) }),
   updateSkill: (id: string, patch: Record<string, unknown>) =>
@@ -143,10 +146,10 @@ export const api = {
 
   // ---- Evolution Logs ----
   getEvolutionLogs: (limit = 50) =>
-    request<any[]>(`/api/skills/evolution/logs?limit=${limit}`),
+    request<ApiRow[]>(`/api/skills/evolution/logs?limit=${limit}`),
 
   // ---- Settings ----
-  getSettings: () => request<any>('/api/settings'),
+  getSettings: () => request<ApiRow>('/api/settings'),
   updateSettings: (patch: Record<string, unknown>) =>
     request<void>('/api/settings', { method: 'PATCH', body: JSON.stringify(patch) }),
   importData: (payload: unknown) =>
