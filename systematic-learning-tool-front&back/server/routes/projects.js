@@ -81,7 +81,7 @@ router.post('/', (req, res) => {
     
     db.prepare(`
       INSERT INTO projects (id, name, description, type, status, progress, created_at, updated_at, due_date, start_date, ref_link)
-      VALUES (?, ?, ?, ?, 'planning', 0, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, 'generating', 0, ?, ?, ?, ?, ?)
     `).run(id, name, description, type, now, now, dueDate || null, startDate || null, refLink || null);
 
     // Create default stages (项目只做深度调研 + 规划)
@@ -103,7 +103,7 @@ router.post('/', (req, res) => {
     runProjectResearch(name, description)
       .then(result => {
         db.prepare(`
-          UPDATE projects SET content = ?, word_count = ?, research_meta = ?, updated_at = ?
+          UPDATE projects SET content = ?, word_count = ?, research_meta = ?, progress = 100, status = 'completed', updated_at = ?
           WHERE id = ?
         `).run(result.content, result.wordCount, JSON.stringify(result.stages.research.researchMeta || {}), new Date().toISOString(), id);
         
@@ -120,10 +120,13 @@ router.post('/', (req, res) => {
         console.log(`[Project] 调研+规划完成: ${name}`);
       })
       .catch(error => {
+        db.prepare(`
+          UPDATE projects SET status = 'error', updated_at = ? WHERE id = ?
+        `).run(new Date().toISOString(), id);
         console.error('[Project] 调研+规划失败:', error);
       });
 
-    res.status(201).json({ id, name, status: 'planning' });
+    res.status(201).json({ id, name, status: 'generating' });
   } catch (error) {
     console.error('Error creating project:', error);
     res.status(500).json({ error: 'Failed to create project' });

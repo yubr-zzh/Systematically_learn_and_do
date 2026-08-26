@@ -8,7 +8,7 @@ export const ENUMS = {
   // learn reports
   reportStatus: new Set(["generating", "completed", "archived", "error"]),
   // projects
-  projectStatus: new Set(["generating", "planning", "in_progress", "completed", "archived"]),
+  projectStatus: new Set(["generating", "planning", "in_progress", "completed", "archived", "error"]),
   projectType: new Set(["product", "tech", "growth", "general"]),
   // skills
   skillStatus: new Set(["active", "watch", "stale", "archived", "pinned"]),

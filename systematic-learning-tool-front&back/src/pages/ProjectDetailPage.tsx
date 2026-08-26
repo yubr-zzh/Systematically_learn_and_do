@@ -118,6 +118,11 @@ export function ProjectDetailPage({ id }: { id: string }) {
       {/* 报告内容 */}
       {project.status === "generating" ? (
         <StageProgress stages={project.stages} overall={project.progress} />
+      ) : project.status === "error" ? (
+        <section className="card p-8 text-center" role="alert">
+          <h2 className="text-lg font-bold text-coral">项目报告生成失败</h2>
+          <p className="mt-2 text-sm text-ink-600 dark:text-forest-300/70">请检查 AI 配置或网络连接后重新创建项目。</p>
+        </section>
       ) : (
         <>
           <ReportViewer content={project.content} />

@@ -60,7 +60,7 @@ export interface ResearchMeta {
 }
 
 export type ProjectTypeId = "product" | "tech" | "growth" | "general";
-export type ProjectStatus = "generating" | "planning" | "in_progress" | "completed" | "archived";
+export type ProjectStatus = "generating" | "planning" | "in_progress" | "completed" | "archived" | "error";
 
 export type TaskPhase = "准备" | "调研" | "执行" | "收尾";
 

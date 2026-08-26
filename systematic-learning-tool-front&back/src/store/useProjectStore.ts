@@ -38,12 +38,22 @@ export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = 
     const id = res.id;
     const project: Project = {
       id, name, description, type,
-      status: "planning", progress: 3, stages: deriveStages(3),
+      status: "generating", progress: 3, stages: deriveStages(3),
       tasks: [], milestones: [], content: "", wordCount: 0,
       cover: Math.floor(Math.random() * 4),
       createdAt: new Date().toISOString(), dueDate, startDate, refLink,
     };
     set(s => ({ projects: [project, ...s.projects] }));
+    const poll = async () => {
+      try {
+        await get().loadProject(id);
+        const current = get().projects.find(p => p.id === id);
+        if (current?.status === "generating") setTimeout(poll, 1500);
+      } catch {
+        setTimeout(poll, 3000);
+      }
+    };
+    setTimeout(poll, 500);
     return id;
   },
 
