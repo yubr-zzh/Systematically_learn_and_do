@@ -41,6 +41,9 @@ export async function withOptimistic<T>(args: OptimisticArgs<T>): Promise<T | nu
     return await args.apiCall();
   } catch (e) {
     args.rollback(args.set);
+    // Re-read authoritative server state after rollback so concurrent
+    // mutations cannot leave the store stale after a failed request.
+    void args.get().loadAll().catch(() => {});
     args.get().toast("error", `${args.errorMessage}：${(e as Error).message}`);
     return null;
   }
