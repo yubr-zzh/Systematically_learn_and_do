@@ -76,6 +76,7 @@ export type AppState = UISlice & {
 
   // Init
   loadAll: () => Promise<void>;
+  loadErrors: Record<string, string>;
 };
 
 // Re-export for callers that previously imported these from useStore.

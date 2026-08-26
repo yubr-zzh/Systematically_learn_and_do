@@ -24,14 +24,28 @@ import { DEFAULT_SETTINGS, createSettingsSlice } from "./useSettingsStore";
 async function loadAllImpl(set: (partial: Partial<AppState> | ((s: AppState) => Partial<AppState>)) => void, get: () => AppState) {
   set({ loading: true });
   try {
-    const [reports, projects, feedbacks, skills, logs, settings] = await Promise.all([
-      api.getReports().catch(() => []),
-      api.getProjects().catch(() => []),
-      api.getFeedback().catch(() => []),
-      api.getSkills().catch(() => []),
-      api.getEvolutionLogs(50).catch(() => []),
-      api.getSettings().catch(() => null),
+    const load = async <T>(name: string, task: Promise<T>, fallback: T) => {
+      try { return { name, value: await task, error: null }; }
+      catch (e) { return { name, value: fallback, error: e instanceof Error ? e.message : "加载失败" }; }
+    };
+    const results = await Promise.all([
+      load("reports", api.getReports(), []),
+      load("projects", api.getProjects(), []),
+      load("feedback", api.getFeedback(), []),
+      load("skills", api.getSkills(), []),
+      load("evolutionLogs", api.getEvolutionLogs(50), []),
+      load("settings", api.getSettings(), null),
     ]);
+    const byName = Object.fromEntries(results.map(r => [r.name, r]));
+    const loadErrors = Object.fromEntries(results.filter(r => r.error).map(r => [r.name, r.error!])) as Record<string, string>;
+    set({ loadErrors });
+    Object.entries(loadErrors).forEach(([name, error]) => get().toast("error", `${name} 加载失败：${error}`));
+    const reports = byName.reports.value as any[];
+    const projects = byName.projects.value as any[];
+    const feedbacks = byName.feedback.value as any[];
+    const skills = byName.skills.value as any[];
+    const logs = byName.evolutionLogs.value as any[];
+    const settings = byName.settings.value as any;
     set({
       reports: (reports || []).map(mapReport),
       projects: (projects || []).map(mapProject),
@@ -55,6 +69,7 @@ export const useStore = create<AppState>()((set, get, store) => ({
   ...createFeedbackSlice(set, get, store),
   ...createSkillSlice(set, get, store),
   ...createSettingsSlice(set, get, store),
+  loadErrors: {},
   loadAll: () => loadAllImpl(set as any, get),
 }));
 
