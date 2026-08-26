@@ -108,6 +108,39 @@ test("GET /api/learn returns array", async () => {
   assert.ok(Array.isArray(body));
 });
 
+test("project detail returns its child collections", async () => {
+  const create = await fetch(`${baseUrl}/api/projects`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "Detail test", description: "Project detail integration test", type: "general" }),
+  });
+  assert.equal(create.status, 201);
+  const { id } = await create.json();
+  const detail = await fetch(`${baseUrl}/api/projects/${id}`);
+  assert.equal(detail.status, 200);
+  const body = await detail.json();
+  assert.ok(Array.isArray(body.stages));
+  assert.ok(Array.isArray(body.tasks));
+  assert.ok(Array.isArray(body.milestones));
+});
+
+test("settings import and clear are persisted", async () => {
+  const importRes = await fetch(`${baseUrl}/api/settings/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data: { data: { reports: [], projects: [], feedback: [], skills: [], settings: null } } }),
+  });
+  assert.equal(importRes.status, 200);
+  const clearRes = await fetch(`${baseUrl}/api/settings/clear`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ confirm: "DELETE_ALL_DATA" }),
+  });
+  assert.equal(clearRes.status, 200);
+  const reports = await fetch(`${baseUrl}/api/learn`);
+  assert.deepEqual(await reports.json(), []);
+});
+
 test("POST /api/projects with bad type -> 400", async () => {
   const res = await fetch(`${baseUrl}/api/projects`, {
     method: "POST",
