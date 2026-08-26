@@ -31,6 +31,7 @@ export type AppState = UISlice & {
 
   // Projects
   projects: Project[];
+  loadProject: (id: string) => Promise<void>;
   createProject: (p: {
     name: string; description: string; type: ProjectTypeId;
     dueDate?: string; startDate?: string; refLink?: string;

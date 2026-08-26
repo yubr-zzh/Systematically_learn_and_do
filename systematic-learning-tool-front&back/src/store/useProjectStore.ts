@@ -5,12 +5,13 @@
 import type { StateCreator } from "zustand";
 import type { Project } from "../types";
 import { api } from "../services/apiClient";
-import { calcTaskProgress, deriveStages } from "./mappers";
+import { calcTaskProgress, deriveStages, mapProject } from "./mappers";
 import { withOptimistic } from "./optimistic";
 import type { AppState } from "./types";
 
 export interface ProjectSlice {
   projects: Project[];
+  loadProject: AppState["loadProject"];
   createProject: AppState["createProject"];
   updateProject: AppState["updateProject"];
   archiveProject: AppState["archiveProject"];
@@ -23,6 +24,14 @@ export interface ProjectSlice {
 
 export const createProjectSlice: StateCreator<AppState, [], [], ProjectSlice> = (set, get, _store) => ({
   projects: [],
+
+  loadProject: async id => {
+    const project = await api.getProject(id);
+    const mapped = mapProject(project);
+    set(s => s.projects.some(p => p.id === id)
+      ? { projects: s.projects.map(p => p.id === id ? mapped : p) }
+      : { projects: [mapped, ...s.projects] });
+  },
 
   createProject: async ({ name, description, type, dueDate, startDate, refLink }) => {
     const res = await api.createProject({ name, description, type, dueDate, startDate, refLink });

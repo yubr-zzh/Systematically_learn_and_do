@@ -2,7 +2,7 @@
 // 项目详情页：调研报告 + 任务追踪 + 时间线 / 进度统计
 // ============================================================
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CalendarDays, CheckCircle2, Circle, Flag, ListTodo, Plus, Trash2, TrendingUp } from "lucide-react";
 import { cn } from "../utils/cn";
 import { useStore } from "../store/useStore";
@@ -14,12 +14,18 @@ import { ReportViewer } from "../components/ReportViewer";
 import { navigateTo } from "../components/Header";
 
 export function ProjectDetailPage({ id }: { id: string }) {
-  const { projects, addTask, toggleTask, deleteTask, markProjectDone, toast } = useStore();
+  const { projects, loadProject, addTask, toggleTask, deleteTask, markProjectDone, toast } = useStore();
   const [newTask, setNewTask] = useState("");
   const [newPhase, setNewPhase] = useState<TaskPhase>("准备");
   const [confirmDone, setConfirmDone] = useState(false);
 
   const project = projects.find((p) => p.id === id);
+
+  useEffect(() => {
+    loadProject(id).catch(error => {
+      toast("error", `项目详情加载失败：${error instanceof Error ? error.message : "请稍后重试"}`);
+    });
+  }, [id, loadProject, toast]);
 
   const stats = useMemo(() => {
     if (!project) return { total: 0, done: 0 };
