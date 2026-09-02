@@ -61,10 +61,55 @@ function thresholdForTransition(currentStatus, nextStatus) {
 }
 
 /**
+ * Cross-instance lock for runCurator().
+ *
+ * Multiple Node processes sharing one SQLite file (dev-server HMR +
+ * background worker, or PM2 cluster mode) all want to run the
+ * periodic curator pass. Without coordination each instance would
+ * scan + UPDATE + write evolution_logs, producing duplicate logs.
+ *
+ * The lock is a single-row table (id='singleton') holding
+ * `last_run_at` + the running instance's pid/token. Acquiring
+ * succeeds when EITHER the row doesn't exist yet OR last_run_at is
+ * older than `cooldownMs`. This is intentionally optimistic: even
+ * if two instances race past the check at the exact same instant,
+ * the SQLite UPDATE is atomic and only one row gets the new
+ * `last_run_at`; the loser observes `last_run_at` already moved and
+ * re-tries — finding it newer than `now - cooldownMs` and skipping.
+ *
+ * Returns true if the caller may proceed with the curator pass,
+ * false if another instance holds the lock inside the cooldown.
+ */
+export function acquireCuratorLock({ cooldownMs = 24 * 60 * 60 * 1000 } = {}) {
+  const nowIso = new Date().toISOString();
+  const token = `tok-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  // INSERT the singleton row if absent.
+  db.prepare(`
+    INSERT OR IGNORE INTO curator_lock (id, last_run_at, last_pid, last_token)
+    VALUES ('singleton', '1970-01-01T00:00:00.000Z', 0, '')
+  `).run();
+  // Atomically claim the lock if the cooldown has elapsed.
+  const cutoffIso = new Date(Date.now() - cooldownMs).toISOString();
+  const result = db.prepare(`
+    UPDATE curator_lock
+    SET last_run_at = ?, last_pid = ?, last_token = ?
+    WHERE id = 'singleton' AND last_run_at < ?
+  `).run(nowIso, process.pid, token, cutoffIso);
+  return result.changes === 1;
+}
+
+/**
  * Single pass: scan all non-terminal Skills, demote as needed.
- * Returns a summary { promotedToWatch, demotedToStale, demotedToArchived, errors }.
+ * Returns a summary { promotedToWatch, demotedToStale, demotedToArchived,
+ * skipped (lock not acquired), errors }.
  */
 export function runCurator() {
+  // Cheap fast-path: every caller checks the lock first so the common
+  // case (another instance just ran) does no work.
+  if (!acquireCuratorLock()) {
+    return { promotedToWatch: 0, demotedToStale: 0, demotedToArchived: 0, skipped: true, errors: [] };
+  }
+
   const rows = db.prepare(
     "SELECT id, name, status, updated_at FROM skills WHERE status NOT IN ('pinned', 'archived')"
   ).all();
@@ -118,7 +163,9 @@ export function startCuratorLoop(intervalMs = 24 * 60 * 60 * 1000) {
   const initial = setTimeout(() => {
     try {
       const result = runCurator();
-      if (result.promotedToWatch || result.demotedToStale || result.demotedToArchived) {
+      if (result.skipped) {
+        console.log("[Curator] skipped — another instance holds the lock");
+      } else if (result.promotedToWatch || result.demotedToStale || result.demotedToArchived) {
         console.log(
           `[Curator] promotedToWatch=${result.promotedToWatch} ` +
           `demotedToStale=${result.demotedToStale} ` +

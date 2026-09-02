@@ -229,6 +229,18 @@ export function initDatabase() {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_report_processes_heartbeat ON report_processes(heartbeat_at)`);
 
+  // Curator cross-instance lock. Single-row table ('singleton' PK)
+  // recording when the curator last ran + which pid holds it. See
+  // services/curator.js > acquireCuratorLock for the protocol.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS curator_lock (
+      id TEXT PRIMARY KEY CHECK (id = 'singleton'),
+      last_run_at TEXT NOT NULL,
+      last_pid INTEGER NOT NULL,
+      last_token TEXT NOT NULL
+    )
+  `);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_learn_reports_category ON learn_reports(category);
@@ -243,6 +255,9 @@ export function initDatabase() {
   `).run(new Date().toISOString());
   db.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)
+  `).run(new Date().toISOString());
+  db.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)
   `).run(new Date().toISOString());
 
   console.log('Database tables initialized');
