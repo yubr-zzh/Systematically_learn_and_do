@@ -123,6 +123,19 @@ export function mapSkill(s: any): Skill {
   };
 }
 
+export function mapSkillVersion(v: any, skillId: string) {
+  return {
+    id: v.id,
+    skillId,
+    version: v.version,
+    name: v.name,
+    description: v.description,
+    content: v.content,
+    category: v.category,
+    createdAt: v.created_at,
+  };
+}
+
 export function mapEvolutionLog(l: any): EvolutionLog {
   return {
     id: l.id,

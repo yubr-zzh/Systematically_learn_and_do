@@ -11,6 +11,15 @@ declare global {
 const BASE = import.meta.env.VITE_API_BASE_URL || '';
 type ApiRow = Record<string, unknown>;
 export type ReportVersionRow = { id: string; version: number; created_at: string; content: string };
+export type SkillVersionRow = {
+  id: string;
+  version: number;
+  created_at: string;
+  name: string;
+  description: string;
+  content: string;
+  category: string;
+};
 
 async function request<T>(path: string, options?: RequestInit & { params?: Record<string, string> }): Promise<T> {
   const params = options?.params;
@@ -143,6 +152,10 @@ export const api = {
   deleteSkill: (id: string) => request<void>(`/api/skills/${id}`, { method: 'DELETE' }),
   incrementSkillUsage: (id: string) =>
     request<void>(`/api/skills/${id}/use`, { method: 'POST' }),
+  getSkillVersions: (id: string) =>
+    request<SkillVersionRow[]>(`/api/skills/${id}/versions`),
+  restoreSkillVersion: (id: string, versionId: string) =>
+    request<{ success: boolean }>(`/api/skills/${id}/versions/${versionId}/restore`, { method: 'POST' }),
 
   // ---- Evolution Logs ----
   getEvolutionLogs: (limit = 50) =>

@@ -58,6 +58,9 @@ export type AppState = UISlice & {
   pinSkill: (id: string) => Promise<void>;
   deleteSkill: (id: string) => Promise<void>;
   incrementSkillUsage: (id: string) => Promise<void>;
+  loadSkillVersions: (skillId: string) => Promise<void>;
+  restoreSkillVersion: (skillId: string, versionId: string) => Promise<void>;
+  skillVersions: Record<string, SkillVersion[]>;
   addEvolutionLog: (log: Omit<EvolutionLog, "id" | "timestamp">) => void;
   processFeedbackAndEvolve: (
     reportId: string | undefined,

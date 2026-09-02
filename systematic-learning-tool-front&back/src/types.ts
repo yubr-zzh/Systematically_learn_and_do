@@ -131,6 +131,17 @@ export interface Skill {
   tags: string[];
 }
 
+export interface SkillVersion {
+  id: string;
+  skillId: string;
+  version: number;
+  name: string;
+  description: string;
+  content: string;
+  category: CategoryId;
+  createdAt: string;
+}
+
 export interface EvolutionLog {
   id: string;
   timestamp: string;

@@ -104,10 +104,32 @@ router.patch('/:id', (req, res) => {
     if (!skill) {
       return res.status(404).json({ error: 'Skill not found' });
     }
-    
+
+    // Snapshot the pre-image BEFORE writing if any content-bearing
+    // field is actually changing. Pure metadata edits (status, rating,
+    // tags) don't earn a version row.
+    const contentChanged =
+      (name !== undefined && name !== skill.name) ||
+      (description !== undefined && description !== skill.description) ||
+      (content !== undefined && content !== skill.content) ||
+      (category !== undefined && category !== skill.category);
+    if (contentChanged) {
+      const nextVersion = (db.prepare(
+        'SELECT COALESCE(MAX(version), 0) + 1 AS v FROM skill_versions WHERE skill_id = ?'
+      ).get(id)?.v) || 1;
+      db.prepare(`
+        INSERT INTO skill_versions (id, skill_id, name, description, content, category, version, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        `skver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id, skill.name, skill.description, skill.content, skill.category,
+        nextVersion, new Date().toISOString()
+      );
+    }
+
     const updates = [];
     const params = [];
-    
+
     if (name !== undefined) { updates.push('name = ?'); params.push(name); }
     if (description !== undefined) { updates.push('description = ?'); params.push(description); }
     if (content !== undefined) { updates.push('content = ?'); params.push(content); }
@@ -214,6 +236,63 @@ router.get('/evolution/logs', (req, res) => {
   } catch (error) {
     console.error('Error fetching evolution logs:', error);
     res.status(500).json({ error: 'Failed to fetch logs' });
+  }
+});
+
+// List prior versions of a skill. The content is included so the
+// UI can render a side-by-side preview before confirming a restore.
+router.get('/:id/versions', (req, res) => {
+  try {
+    const { id } = req.params;
+    const versions = db.prepare(`
+      SELECT id, version, created_at, name, description, content, category
+      FROM skill_versions
+      WHERE skill_id = ?
+      ORDER BY version DESC
+    `).all(id);
+    res.json(versions);
+  } catch (error) {
+    console.error('Error fetching skill versions:', error);
+    res.status(500).json({ error: 'Failed to fetch versions' });
+  }
+});
+
+// Restore a previous version. Snapshots the current content as a new
+// version first so the restore itself is reversible.
+router.post('/:id/versions/:vid/restore', (req, res) => {
+  try {
+    const { id, vid } = req.params;
+    const target = db.prepare(
+      'SELECT id, version, name, description, content, category FROM skill_versions WHERE id = ? AND skill_id = ?'
+    ).get(vid, id);
+    if (!target) return res.status(404).json({ error: 'Version not found' });
+    const skill = db.prepare('SELECT name, description, content, category FROM skills WHERE id = ?').get(id);
+    if (!skill) return res.status(404).json({ error: 'Skill not found' });
+
+    // Snapshot current state first.
+    const nextVersion = (db.prepare(
+      'SELECT COALESCE(MAX(version), 0) + 1 AS v FROM skill_versions WHERE skill_id = ?'
+    ).get(id)?.v) || 1;
+    db.prepare(`
+      INSERT INTO skill_versions (id, skill_id, name, description, content, category, version, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      `skver-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id, skill.name, skill.description, skill.content, skill.category,
+      nextVersion, new Date().toISOString()
+    );
+
+    // Restore target fields onto the skill row.
+    db.prepare(`
+      UPDATE skills
+      SET name = ?, description = ?, content = ?, category = ?, updated_at = ?
+      WHERE id = ?
+    `).run(target.name, target.description, target.content, target.category, new Date().toISOString(), id);
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error restoring skill version:', error);
+    res.status(500).json({ error: 'Failed to restore version' });
   }
 });
 

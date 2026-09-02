@@ -241,6 +241,26 @@ export function initDatabase() {
     )
   `);
 
+  // Per-skill content snapshots. A row is written BEFORE any PATCH
+  // that changes content/name/description/category, capturing the
+  // previous state. UI shows a "version history" pane and a
+  // one-click restore. Without this the only way to recover an
+  // over-eager manual edit was to revert the whole DB file.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_versions (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      content TEXT NOT NULL,
+      category TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_skill_versions_skill_id ON skill_versions(skill_id, version DESC)`);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_learn_reports_category ON learn_reports(category);
@@ -258,6 +278,9 @@ export function initDatabase() {
   `).run(new Date().toISOString());
   db.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (3, ?)
+  `).run(new Date().toISOString());
+  db.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (4, ?)
   `).run(new Date().toISOString());
 
   console.log('Database tables initialized');

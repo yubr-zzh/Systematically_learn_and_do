@@ -3,21 +3,25 @@
 // ============================================================
 
 import type { StateCreator } from "zustand";
-import type { EvolutionLog, Skill, SkillStatus } from "../types";
+import type { EvolutionLog, Skill, SkillStatus, SkillVersion } from "../types";
 import { api } from "../services/apiClient";
 import { uid } from "./mappers";
 import { withOptimistic } from "./optimistic";
+import { mapSkillVersion } from "./mappers";
 import type { AppState } from "./types";
 
 export interface SkillSlice {
   skills: Skill[];
   evolutionLogs: EvolutionLog[];
+  skillVersions: Record<string, SkillVersion[]>;
   addSkill: AppState["addSkill"];
   updateSkill: AppState["updateSkill"];
   archiveSkill: AppState["archiveSkill"];
   pinSkill: AppState["pinSkill"];
   deleteSkill: AppState["deleteSkill"];
   incrementSkillUsage: AppState["incrementSkillUsage"];
+  loadSkillVersions: AppState["loadSkillVersions"];
+  restoreSkillVersion: AppState["restoreSkillVersion"];
   addEvolutionLog: AppState["addEvolutionLog"];
 }
 
@@ -26,6 +30,7 @@ const MAX_EVOLUTION_LOGS = 100;
 export const createSkillSlice: StateCreator<AppState, [], [], SkillSlice> = (set, get, _store) => ({
   skills: [],
   evolutionLogs: [],
+  skillVersions: {},
 
   addSkill: async skill => {
     const res = await api.createSkill(skill);
@@ -104,6 +109,35 @@ export const createSkillSlice: StateCreator<AppState, [], [], SkillSlice> = (set
       errorMessage: "删除 Skill 失败",
     });
     if (result !== null) get().toast("info", "Skill 已删除");
+  },
+
+  loadSkillVersions: async skillId => {
+    const rows = await api.getSkillVersions(skillId);
+    const versions = (rows || []).map((v: any) => mapSkillVersion(v, skillId));
+    set(s => ({ skillVersions: { ...s.skillVersions, [skillId]: versions } }));
+  },
+
+  restoreSkillVersion: async (skillId, versionId) => {
+    const versions = get().skillVersions[skillId] || [];
+    const target = versions.find(v => v.id === versionId);
+    if (!target) return;
+    await api.restoreSkillVersion(skillId, versionId);
+    set(s => ({
+      skills: s.skills.map(sk =>
+        sk.id === skillId
+          ? { ...sk, name: target.name, description: target.description, content: target.content, category: target.category, updatedAt: new Date().toISOString(), version: sk.version + 1 }
+          : sk
+      ),
+    }));
+    // Refresh the version list so the just-snapshotted pre-image
+    // appears at the top.
+    await get().loadSkillVersions(skillId);
+    get().addEvolutionLog({
+      type: 'skill_updated',
+      skillName: target.name,
+      description: `Restored skill to version v${target.version}`,
+    });
+    get().toast('success', `已恢复到 v${target.version}`);
   },
 
   incrementSkillUsage: async id => {
