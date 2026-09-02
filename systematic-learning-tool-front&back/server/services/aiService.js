@@ -3,8 +3,11 @@
 // Integrates with: horizontal-vertical-analysis, deep-research-workflow, plan
 // ============================================================
 
-import fetch from 'node-fetch';
+import nodeFetch from 'node-fetch';
 import https from 'node:https';
+// `fetch` resolves lazily: tests inject a stub via globalThis.fetch.
+// At runtime we always fall back to the bundled node-fetch.
+const getFetch = () => (typeof globalThis.fetch === 'function' ? globalThis.fetch : nodeFetch);
 import { config } from '../config.js';
 import { formatEvidenceForPrompt, searchWeb } from './webSearch.js';
 
@@ -16,38 +19,101 @@ const MODEL = config.aiModel;
 const httpsAgent = new https.Agent({ proxy: false });
 
 /**
- * Call AI API with error handling (proxy bypass)
+ * Streaming AI call (DeepSeek Chat Completions, OpenAI-compatible SSE).
+ *
+ * Returns the fully accumulated content as a string. Every chunk also
+ * triggers `onChunk({ delta, accumulated, stage })` so callers can map
+ * real bytes-arrived into a 0..1 ratio and surface truthful progress
+ * to the UI.
+ *
+ * Why stream: with non-streaming `callAI` the network call holds the
+ * socket for 60-120s before the response body lands. SSE gives us
+ * intermediate events so we can show "stage X at 42%" instead of
+ * waiting for the full body. Also gets us out of the
+ * fake-elapsed-time-progress trap that used to live in learnStream.js.
+ *
+ * Back-compat: `callAI(messages, options)` is still exported below as
+ * a thin wrapper that just drains the stream.
+ */
+export async function callAIStream(messages, options = {}, onChunk = null) {
+  const { maxTokens = 4000, temperature = 0.7, stage = 'unknown' } = options;
+  if (!API_KEY) {
+    throw new Error('AI API key is not configured (DEEPSEEK_API_KEY)');
+  }
+
+  const response = await getFetch()(`${API_BASE_URL}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${API_KEY}`,
+    },
+    body: JSON.stringify({
+      model: MODEL,
+      messages,
+      max_tokens: maxTokens,
+      temperature,
+      stream: true,
+    }),
+    agent: httpsAgent,
+  });
+
+  if (!response.ok || !response.body) {
+    const errorText = await response.text().catch(() => '');
+    throw new Error(`AI API error: ${response.status} - ${errorText}`);
+  }
+
+  let accumulated = '';
+  // SSE framing: lines starting with "data: " until the terminating
+  // sentinel "data: [DONE]". node-fetch exposes response.body as a
+  // WHATWG ReadableStream.
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder('utf-8');
+  let buffer = '';
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      // Process all complete SSE events currently in the buffer.
+      let nl;
+      while ((nl = buffer.indexOf('\n')) !== -1) {
+        const line = buffer.slice(0, nl).replace(/\r$/, '');
+        buffer = buffer.slice(nl + 1);
+        if (!line.startsWith('data:')) continue;
+        const payload = line.slice(5).trim();
+        if (payload === '[DONE]') {
+          // Final chunk.
+          if (onChunk) onChunk({ delta: '', accumulated, stage });
+          return accumulated;
+        }
+        try {
+          const json = JSON.parse(payload);
+          const delta = json.choices?.[0]?.delta?.content || '';
+          if (delta) {
+            accumulated += delta;
+            if (onChunk) onChunk({ delta, accumulated, stage });
+          }
+        } catch {
+          // Malformed chunk — skip rather than abort the whole call.
+        }
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  // If the server closes the stream without sending [DONE], still
+  // hand back whatever we accumulated.
+  if (onChunk) onChunk({ delta: '', accumulated, stage });
+  return accumulated;
+}
+
+/**
+ * Non-streaming wrapper retained for back-compat with any caller that
+ * doesn't care about intermediate chunks. Internally still streams —
+ * just discards onChunk.
  */
 async function callAI(messages, options = {}) {
-  const { maxTokens = 4000, temperature = 0.7 } = options;
-  
-  try {
-    const response = await fetch(`${API_BASE_URL}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages,
-        max_tokens: maxTokens,
-        temperature,
-      }),
-      agent: httpsAgent,
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`AI API error: ${response.status} - ${error}`);
-    }
-
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
-  } catch (error) {
-    console.error('AI service error:', error);
-    throw error;
-  }
+  return callAIStream(messages, options, null);
 }
 
 /**
@@ -106,10 +172,15 @@ ${subject}（属于 ${category} 领域）
 
   const enrichedUserPrompt = `${userPrompt}\n\n## 时效性与来源要求\n当前日期：${currentDate}\n- 涉及版本、价格、政策、发布日期、当前趋势等易变事实时，优先使用联网资料。\n- 使用联网资料时在相关句子末尾保留 [n] 引用，并在报告末尾输出来源与检索时间。\n- 如果联网资料不可用，不要编造引用，并明确标注哪些内容可能已过时。\n\n## 联网检索证据\n${formatEvidenceForPrompt(evidence)}`;
 
-  const content = await callAI([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: enrichedUserPrompt },
-  ], { maxTokens: depth === 'deep' ? 8000 : 4000 });
+  const stageMaxTokens = depth === 'deep' ? 8000 : 4000;
+  const content = await callAIStream(
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: enrichedUserPrompt },
+    ],
+    { maxTokens: stageMaxTokens, stage: 'analysis' },
+    options.onChunk || null
+  );
 
   return {
     stage: 'analysis',
@@ -164,10 +235,14 @@ ${'```'}
 请输出 Markdown 格式内容。`;
 
   const enrichedUserPrompt = `${userPrompt}\n\n## 联网检索证据\n${formatEvidenceForPrompt(evidence)}\n\n请在使用联网资料时保留 [n] 引用和来源列表。`;
-  const content = await callAI([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: enrichedUserPrompt },
-  ], { maxTokens: 3000 });
+  const content = await callAIStream(
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: enrichedUserPrompt },
+    ],
+    { maxTokens: 3000, stage: 'research' },
+    options.onChunk || null
+  );
 
   return {
     stage: 'research',
@@ -221,10 +296,14 @@ ${'```'}
 
 请输出 Markdown 格式内容。`;
 
-  const content = await callAI([
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
-  ], { maxTokens: 3000 });
+  const content = await callAIStream(
+    [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userPrompt },
+    ],
+    { maxTokens: 3000, stage: 'planning' },
+    options.onChunk || null
+  );
 
   return {
     stage: 'planning',
@@ -237,40 +316,94 @@ ${'```'}
  * 学习报告流程 —— 只做「横纵分析」
  * 针对：学习新概念 / 新领域
  */
+/**
+ * Run the three-stage research pipeline with truthful progress reporting.
+ *
+ * Caller passes `onProgress(percent)` (0..100). We map each stage's
+ * in-flight chunk count into a global window:
+ *   stage1 (analysis)   :  3% ->  43%
+ *   stage2 (research)   : 43% ->  73%
+ *   stage3 (planning)   : 73% ->  97%
+ *   post-processing     : 97% -> 100%
+ *
+ * Within a stage, the ratio is `accumulated / expectedChars` clamped to
+ * the stage's window. The 3% head-start is the "report created, AI
+ * starting" tick. The 3% tail is for the DB writes + version snapshot
+ * after the AI finishes. Clamped at 99% until complete() runs so the
+ * UI never sits at 100% while we're still writing.
+ */
 export async function runLearnAnalysis(subject, category, options = {}) {
-  const { depth = 'standard', sources = config.webSearchMaxResults, timeRange } = options;
+  const { depth = 'standard', sources = config.webSearchMaxResults, timeRange, onProgress } = options;
   console.log(`[Learn] 横纵分析: ${subject}`);
+
+  // Heuristic per-stage expected output: ~2 chars per token, capped at
+  // the per-stage maxTokens. Avoids div-by-zero when a stage is
+  // skipped (e.g. AI fallback path that returns a short template).
+  const stage1Expected = Math.max(2000, (depth === 'deep' ? 8000 : 4000) * 2);
+  const stage2Expected = Math.max(2000, 3000 * 2);
+  const stage3Expected = Math.max(2000, 3000 * 2);
+
+  // stage window (in percent of global progress)
+  const windows = {
+    analysis: { from: 3, to: 43 },
+    research: { from: 43, to: 73 },
+    planning: { from: 73, to: 97 },
+  };
+  const makeStageChunkHandler = (stageName, expectedChars) => {
+    const w = windows[stageName];
+    return ({ accumulated }) => {
+      if (!onProgress) return;
+      const ratio = Math.max(0, Math.min(1, accumulated.length / expectedChars));
+      const percent = w.from + ratio * (w.to - w.from);
+      // Clamp below 100 so the UI doesn't show 100% before complete().
+      onProgress(Math.min(99, Math.round(percent)));
+    };
+  };
 
   let stage1;
   try {
-    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, { depth, sources, timeRange });
+    stage1 = await stage1HorizontalVerticalAnalysis(subject, category, {
+      depth, sources, timeRange,
+      onChunk: makeStageChunkHandler('analysis', stage1Expected),
+    });
   } catch (e) {
     console.warn('[Learn] AI 不可用，使用模板:', e.message);
     stage1 = generateTemplateReport(subject, category);
+    if (onProgress) onProgress(windows.analysis.to);
   }
 
   let stage2;
   try {
-    stage2 = await stage2DeepResearch(subject, stage1.content, { sources, timeRange });
+    stage2 = await stage2DeepResearch(subject, stage1.content, {
+      sources, timeRange,
+      onChunk: makeStageChunkHandler('research', stage2Expected),
+    });
   } catch (e) {
     console.warn('[Learn] deep research fallback:', e.message);
-    stage2 = { stage: 'research', content: '## Deep Research\\n\\nAI unavailable; use the analysis above to continue practical research.', wordCount: 50, researchMeta: stage1.researchMeta };
+    stage2 = { stage: 'research', content: '## Deep Research\n\nAI unavailable; use the analysis above to continue practical research.', wordCount: 50, researchMeta: stage1.researchMeta };
+    if (onProgress) onProgress(windows.research.to);
   }
 
   let stage3;
   try {
-    stage3 = await stage3Planning(subject, stage1.content, stage2.content, { style: 'hybrid' });
+    stage3 = await stage3Planning(subject, stage1.content, stage2.content, {
+      style: 'hybrid',
+      onChunk: makeStageChunkHandler('planning', stage3Expected),
+    });
   } catch (e) {
     console.warn('[Learn] planning fallback:', e.message);
-    stage3 = { stage: 'planning', content: '## Planning Suggestions\\n\\nCreate a learning roadmap from the core concepts and pitfalls.', wordCount: 30 };
+    stage3 = { stage: 'planning', content: '## Planning Suggestions\n\nCreate a learning roadmap from the core concepts and pitfalls.', wordCount: 30 };
+    if (onProgress) onProgress(windows.planning.to);
   }
 
-  const content = [stage1.content, stage2.content, stage3.content].join('\\n\\n---\\n\\n');
+  const content = [stage1.content, stage2.content, stage3.content].join('\n\n---\n\n');
+
+  if (onProgress) onProgress(99);
 
   return {
     content,
     stages: { analysis: stage1, research: stage2, planning: stage3 },
-    wordCount: content.replace(/\\s/g, '').length,
+    wordCount: content.replace(/\s/g, '').length,
     researchMeta: stage1.researchMeta || { available: false, results: [], searchedAt: new Date().toISOString() },
   };
 }
