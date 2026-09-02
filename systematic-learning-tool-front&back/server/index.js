@@ -120,11 +120,23 @@ app.use(errorHandler);
 // Initialize database and start server
 async function start() {
   try {
-    // Surface missing / placeholder env before doing anything else
-    const { problems } = validateConfig();
-    if (problems.length) {
-      console.warn('⚠️  Configuration warnings:');
-      problems.forEach(p => console.warn(`   - ${p}`));
+    // Surface missing / placeholder env before doing anything else.
+    // In production we REFUSE to boot with placeholder config — the
+    // user must explicitly set a real DEEPSEEK_API_KEY (the README
+    // example file uses one for local dev). In dev we keep the old
+    // warn-only behaviour so contributors can poke at the UI without
+    // a working AI key (the aiService has a static template fallback).
+    const validation = validateConfig();
+    if (validation.problems.length) {
+      const header = config.nodeEnv === 'production'
+        ? '❌ Configuration errors (refusing to boot):'
+        : '⚠️  Configuration warnings:';
+      console.warn(header);
+      validation.problems.forEach(p => console.warn(`   - ${p}`));
+      if (!validation.ok && config.nodeEnv === 'production') {
+        console.error('\nRefusing to start in production with placeholder config. Set a real DEEPSEEK_API_KEY in .env (or in the deployment environment) and try again.');
+        process.exit(1);
+      }
     } else {
       console.log('✅  Configuration OK (AI key present)');
     }
