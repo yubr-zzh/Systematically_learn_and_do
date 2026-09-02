@@ -65,9 +65,9 @@ function urlError(field, value) {
   if (value === undefined || value === null || value === "") return null;
   try {
     const url = new URL(String(value));
-    if (!['http:', 'https:'].includes(url.protocol)) return `${field} 鍙敮鎸� http/https`;
+    if (!['http:', 'https:'].includes(url.protocol)) return `${field} only supports http/https URLs`;
   } catch {
-    return `${field} 蹇呴』鏄湁鏁堢殑 URL`;
+    return `${field} must be a valid URL`;
   }
   return null;
 }
