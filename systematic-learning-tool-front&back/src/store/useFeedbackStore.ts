@@ -6,6 +6,7 @@ import type { StateCreator } from "zustand";
 import type { FeedbackItem, SkillStatus } from "../types";
 import { api } from "../services/apiClient";
 import { withOptimistic } from "./optimistic";
+import { replaceSectionBody } from "../utils/markdownSections";
 import type { AppState } from "./types";
 
 export interface FeedbackSlice {
@@ -59,17 +60,18 @@ export const createFeedbackSlice: StateCreator<AppState, [], [], FeedbackSlice> 
     const prevRating = relatedSkill.rating || 0;
     const newRating = prevRating === 0 ? rating : Number((prevRating * 0.6 + rating * 0.4).toFixed(2));
 
-    const FEEDBACK_SECTION_HEADER = "## 改进点（来自反馈）";
-    const sections = relatedSkill.content.split(/\n(?=##\s)/);
-    const withoutOldFeedback = sections.filter(s => !s.startsWith(FEEDBACK_SECTION_HEADER));
-    const newEntry = [
+    // Use the section-aware helper from utils/markdownSections.ts to
+    // append-or-replace the feedback section. This is robust to
+    // whitespace / casing drift in the stored heading AND guarantees
+    // we never end up with two "改进点（来自反馈）" sections stacked
+    // after multiple rounds of feedback.
+    const FEEDBACK_SECTION_HEADER = "改进点（来自反馈）";
+    const newEntryBody = `> ${new Date().toLocaleString("zh-CN")} · 评分 ${rating}星\n\n${trimmedImprovements}`;
+    const updatedContent = replaceSectionBody(
+      relatedSkill.content,
       FEEDBACK_SECTION_HEADER,
-      "",
-      `> ${new Date().toLocaleString("zh-CN")} · 评分 ${rating}星`,
-      "",
-      trimmedImprovements,
-    ].join("\n");
-    const updatedContent = [...withoutOldFeedback, newEntry].join("\n\n").replace(/\n{3,}/g, "\n\n");
+      newEntryBody
+    );
 
     let nextStatus: SkillStatus = relatedSkill.status;
     if (rating < 3 && relatedSkill.status === "active") {
