@@ -14,6 +14,7 @@ import { config, validateConfig } from './config.js';
 import { initDatabase, db } from './db/database.js';
 import { seedSkills } from './db/seed.js';
 import { startCuratorLoop } from './services/curator.js';
+import { reapOrphanProcesses } from './services/reportLifecycle.js';
 import { createRateLimiter } from './middleware/rateLimit.js';
 import learnRoutes from './routes/learn.js';
 import projectRoutes from './routes/projects.js';
@@ -130,6 +131,14 @@ async function start() {
 
     await initDatabase();
     console.log('Database initialized');
+
+    // Reap report_processes rows left behind by a crashed/restarted
+    // previous instance. Done before seeding so orphan reports are
+    // visible to /api/health / loadAll without waiting for any timer.
+    const reaped = reapOrphanProcesses();
+    if (reaped.orphanedReports) {
+      console.log(`[reaper] marked ${reaped.orphanedReports} orphan report(s) as 'error'`);
+    }
 
     // Seed skills from skills folder
     seedSkills();

@@ -210,6 +210,25 @@ export function initDatabase() {
     )
   `);
 
+  // Per-report process tracking: a row means "this Node process is
+  // actively generating report_id". On server boot, rows whose
+  // heartbeat is older than ORPHAN_HEARTBEAT_MS are reaped and the
+  // corresponding learn_reports (still status='generating') are
+  // marked 'error' so the UI stops showing the forever-spinning state.
+  // Without this, a server restart while a report was in flight leaves
+  // it stuck forever — loadAll() would only re-attach to an SSE handler
+  // that never emits again.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS report_processes (
+      report_id TEXT PRIMARY KEY,
+      pid INTEGER NOT NULL,
+      started_at TEXT NOT NULL,
+      heartbeat_at TEXT NOT NULL,
+      FOREIGN KEY (report_id) REFERENCES learn_reports(id) ON DELETE CASCADE
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_report_processes_heartbeat ON report_processes(heartbeat_at)`);
+
   // Create indexes
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_learn_reports_category ON learn_reports(category);
@@ -221,6 +240,9 @@ export function initDatabase() {
 
   db.prepare(`
     INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (1, ?)
+  `).run(new Date().toISOString());
+  db.prepare(`
+    INSERT OR IGNORE INTO schema_migrations (version, applied_at) VALUES (2, ?)
   `).run(new Date().toISOString());
 
   console.log('Database tables initialized');

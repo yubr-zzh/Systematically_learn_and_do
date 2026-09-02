@@ -5,6 +5,11 @@
 import { Router } from 'express';
 import { db } from '../db/database.js';
 import { streamLearnAnalysis } from '../services/learnStream.js';
+import {
+  registerReportProcess,
+  touchReportProcess,
+  unregisterReportProcess,
+} from '../services/reportLifecycle.js';
 import { badRequestIfAny, validateLearnCreate, validateLearnReportPatch } from '../validators.js';
 
 const router = Router();
@@ -122,12 +127,18 @@ router.post('/', async (req, res) => {
       );
     });
 
+    // Register this in-flight report with the local process BEFORE the
+    // emitter starts so a server crash before the first event still has
+    // a heartbeat row the reaper can find on next boot.
+    registerReportProcess(id);
+
     // 启动异步横纵分析（学习流程）。通过 streamLearnAnalysis 拿到
     // progress / complete / error 事件，并把进度实时写库，这样 SSE 客户端
     // 可以在中途连接进来也能同步看到进度。
     const emitter = streamLearnAnalysis(subject, category, { depth, template });
     emitter
       .on('progress', ({ progress }) => {
+        touchReportProcess(id);
         db.prepare(`
           UPDATE learn_reports SET progress = ?, updated_at = ?
           WHERE id = ?
@@ -161,10 +172,12 @@ router.post('/', async (req, res) => {
           `).run(stage.content, id, stageId);
         }
 
+        unregisterReportProcess(id);
         console.log(`[Learn] 横纵分析完成: ${subject}`);
       })
       .on('error', (err) => {
         console.error('Research failed:', err);
+        unregisterReportProcess(id);
         db.prepare(`
           UPDATE learn_reports SET status = 'error', updated_at = ?
           WHERE id = ?
