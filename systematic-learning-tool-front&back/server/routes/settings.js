@@ -4,7 +4,18 @@
 
 import { Router } from 'express';
 import { db } from '../db/database.js';
-import { badRequestIfAny, validateSettingsPatch } from '../validators.js';
+import {
+  badRequestIfAny,
+  validateFeedbackCreate,
+  validateLearnCreate,
+  validateLearnReportPatch,
+  validateProjectCreate,
+  validateProjectPatch,
+  validateSettingsPatch,
+  validateSkillCreate,
+  validateSkillPatch,
+  validateTaskAdd,
+} from '../validators.js';
 
 const router = Router();
 
@@ -104,14 +115,63 @@ router.post('/import', (req, res) => {
 
     const { reports, projects, feedback, skills, settings } = data.data;
 
-    // Validate the embedded settings object against the same rules as PATCH /settings.
-    // Entity rows (reports/projects/feedback/skills) are trusted because they originate
-    // from our own export endpoint; validating each row would block legitimate backups
-    // and the cost-benefit isn't there.
-    if (settings) {
-      const errs = validateSettingsPatch(settings);
-      if (badRequestIfAny(res, errs)) return;
+    // Row-level validation: reject the whole import if ANY embedded
+    // row has an invalid enum / range / length. Hand-edited JSON
+    // backups can otherwise inject bogus `status` strings that the
+    // backend happily stores (no CHECK constraints on these TEXT
+    // columns) and the UI then renders unfiltered.
+    const errs = [];
+    if (Array.isArray(reports)) {
+      reports.forEach((r, i) => {
+        // A row in an import looks like a hydrated LearnReport — same
+        // shape PATCH /api/learn/:id would receive, plus the id/title
+        // we never modify. Run validateLearnReportPatch and also
+        // validate the create-side fields that PATCH doesn't touch.
+        const createErrs = validateLearnCreate({ subject: r.subject, category: r.category });
+        createErrs.forEach(e => errs.push(`reports[${i}]: ${e}`));
+        const patchErrs = validateLearnReportPatch(r);
+        patchErrs.forEach(e => errs.push(`reports[${i}]: ${e}`));
+      });
     }
+    if (Array.isArray(projects)) {
+      projects.forEach((p, i) => {
+        const createErrs = validateProjectCreate({
+          name: p.name, description: p.description, type: p.type, refLink: p.ref_link,
+        });
+        createErrs.forEach(e => errs.push(`projects[${i}]: ${e}`));
+        const patchErrs = validateProjectPatch(p);
+        patchErrs.forEach(e => errs.push(`projects[${i}]: ${e}`));
+        if (Array.isArray(p.tasks)) {
+          p.tasks.forEach((t, ti) => {
+            const tErrs = validateTaskAdd({ title: t.title, phase: t.phase });
+            tErrs.forEach(e => errs.push(`projects[${i}].tasks[${ti}]: ${e}`));
+          });
+        }
+      });
+    }
+    if (Array.isArray(feedback)) {
+      feedback.forEach((f, i) => {
+        const fErrs = validateFeedbackCreate({
+          reportTitle: f.report_title, rating: f.rating,
+        });
+        fErrs.forEach(e => errs.push(`feedback[${i}]: ${e}`));
+      });
+    }
+    if (Array.isArray(skills)) {
+      skills.forEach((s, i) => {
+        const createErrs = validateSkillCreate({
+          name: s.name, description: s.description, content: s.content,
+        });
+        createErrs.forEach(e => errs.push(`skills[${i}]: ${e}`));
+        const patchErrs = validateSkillPatch(s);
+        patchErrs.forEach(e => errs.push(`skills[${i}]: ${e}`));
+      });
+    }
+    if (settings) {
+      const sErrs = validateSettingsPatch(settings);
+      sErrs.forEach(e => errs.push(`settings: ${e}`));
+    }
+    if (badRequestIfAny(res, errs)) return;
     
     const importAll = db.transaction(() => {
     // Import reports
@@ -121,7 +181,8 @@ router.post('/import', (req, res) => {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       reports.forEach(r => {
-        insertReport.run(r.id, r.title, r.subject, r.category, r.status, r.progress, r.content, r.favorite, r.word_count, r.created_at, r.updated_at);
+        // Coerce favorite to 0/1 — hand-edited imports may carry booleans.
+        insertReport.run(r.id, r.title, r.subject, r.category, r.status, r.progress, r.content, r.favorite ? 1 : 0, r.word_count, r.created_at, r.updated_at);
         if (Array.isArray(r.stages)) {
           const insertStage = db.prepare(`
             INSERT OR REPLACE INTO learn_stages (id, report_id, stage_id, name, status, progress, content)
